@@ -1,0 +1,59 @@
+# ======================================
+# Rust / Cargo
+# ======================================
+
+# Build artifacts
+/target/
+
+# Profiling data
+/*.profdata
+/*.profraw
+
+# Rustfmt backups
+**/*.rs.bk
+
+# Cargo lock (keep it ignored if you want Docker to regenerate it)
+# Uncomment if you want to ignore it:
+# Cargo.lock
+
+# ======================================
+# Logs & temp files
+# ======================================
+*.log
+*.tmp
+
+# ======================================
+# Editor / IDE files
+# ======================================
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# JetBrains (CLion, IntelliJ, RustRover, etc.)
+.idea/
+
+# Sublime Text
+*.sublime-project
+*.sublime-workspace
+
+# ======================================
+# OS-specific
+# ======================================
+
+# macOS
+.DS_Store
+
+# Linux
+*~
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# ======================================
+# Docker
+# ======================================
+
+# Don't track docker build output or artifacts
+docker-build/
