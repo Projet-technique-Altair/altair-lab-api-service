@@ -1,5 +1,5 @@
-use axum::{Json, extract::State};
 use crate::models::{SpawnRequest, SpawnResponse, StopRequest, StopResponse};
+use axum::{extract::State, Json};
 
 pub async fn spawn_lab(Json(_payload): Json<SpawnRequest>) -> Json<SpawnResponse> {
     Json(SpawnResponse {

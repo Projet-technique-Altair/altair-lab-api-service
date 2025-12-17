@@ -2,8 +2,8 @@ use axum::Router;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
 
-mod routes;
 mod models;
+mod routes;
 
 use crate::routes::init_routes;
 
@@ -20,13 +20,9 @@ async fn main() {
 
     let app = init_routes().layer(cors);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8085")
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:8085").await.unwrap();
 
     println!("Lab API Service running on http://localhost:8085");
 
-    axum::serve(listener, app)
-        .await
-        .unwrap();
+    axum::serve(listener, app).await.unwrap();
 }

@@ -4,8 +4,8 @@ pub mod spawn;
 pub use health::*;
 pub use spawn::*;
 
-use axum::Router;
 use axum::routing::{get, post};
+use axum::Router;
 
 pub fn init_routes() -> Router {
     Router::new()
