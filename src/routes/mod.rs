@@ -7,7 +7,7 @@ pub use spawn::*;
 use axum::routing::{get, post};
 use axum::Router;
 
-pub fn init_routes() -> Router {
+pub fn init_routes() -> Router<crate::models::state::State> {
     Router::new()
         .route("/health", get(health))
         .route("/spawn", post(spawn_lab))

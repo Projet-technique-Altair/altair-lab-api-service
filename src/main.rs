@@ -1,8 +1,8 @@
-use axum::Router;
+use gcp_auth;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
-use gcp_auth;
 
+mod auth;
 mod models;
 mod routes;
 
@@ -19,12 +19,11 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = init_routes().layer(cors);
+    let state = crate::models::state::State {
+        token_provider: gcp_auth::provider().await.unwrap(),
+    };
 
-    let provider = gcp_auth::provider().await.unwrap();
-    let scopes = &["https://www.googleapis.com/auth/cloud-platform"];
-    let token = provider.token(scopes).await.unwrap();
-
+    let app = init_routes().layer(cors).with_state(state);
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8085").await.unwrap();
 
