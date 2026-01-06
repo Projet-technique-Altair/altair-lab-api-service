@@ -1,6 +1,7 @@
 // use gcp_auth;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
+use kube::Client;
 
 mod auth;
 mod models;
@@ -21,6 +22,7 @@ async fn main() {
 
     let state = crate::models::state::State {
         //token_provider: gcp_auth::provider().await.unwrap(),
+        kube_client: Client::try_default().await.expect("Something is rotten in the state of Alabama and idk what"),
     };
 
     let app = init_routes().layer(cors).with_state(state);
