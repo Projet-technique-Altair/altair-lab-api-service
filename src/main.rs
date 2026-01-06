@@ -1,4 +1,4 @@
-use gcp_auth;
+// use gcp_auth;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
 
@@ -20,7 +20,7 @@ async fn main() {
         .allow_headers(Any);
 
     let state = crate::models::state::State {
-        token_provider: gcp_auth::provider().await.unwrap(),
+        //token_provider: gcp_auth::provider().await.unwrap(),
     };
 
     let app = init_routes().layer(cors).with_state(state);
