@@ -6,6 +6,7 @@ use kube::Client;
 mod auth;
 mod models;
 mod routes;
+mod services;
 
 use crate::routes::init_routes;
 
