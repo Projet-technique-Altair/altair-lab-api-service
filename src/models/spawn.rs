@@ -21,3 +21,13 @@ pub struct StopRequest {
 pub struct StopResponse {
     pub status: String,
 }
+
+#[derive(Deserialize)]
+pub struct StatusRequest {
+    pub container_id: String,
+}
+
+#[derive(Serialize)]
+pub struct StatusResponse {
+    pub status: String,
+}

@@ -48,3 +48,9 @@ pub async fn delete_lab(State(state): State<state::State>, pod_name: String) {
         .await
         .expect("deleting went wrong");
 }
+
+pub async fn status_lab(State(state): State<state::State>, pod_name: String) -> String{
+    let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), "default");
+    let pod = pods.get(pod_name.as_str()).await.expect("PULAMEA");
+    pod.status.expect("PIZDAMATI").phase.expect("COAIE")
+}

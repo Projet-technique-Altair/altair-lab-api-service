@@ -30,5 +30,14 @@ POST http://localhost:8085/spawn/stop
 Content-Type: application/json
 
 {
-  "container_id": "mock-container"
+  "container_id": "d27fe618-767b-4a2a-afe8-90ec07124f45"
+}
+
+
+### Status of a pod
+GET http://localhost:8085/spawn/status
+Content-Type: application/json
+
+{
+  "container_id": "4a7f3b75-4e5b-4a83-927d-48736e495b49"
 }

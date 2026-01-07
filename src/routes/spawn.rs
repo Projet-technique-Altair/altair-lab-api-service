@@ -1,4 +1,6 @@
-use crate::models::{SpawnRequest, SpawnResponse, StopRequest, StopResponse};
+use crate::models::{
+    SpawnRequest, SpawnResponse, StatusRequest, StatusResponse, StopRequest, StopResponse,
+};
 use crate::services::spawn;
 
 use axum::{extract::State, Json};
@@ -26,5 +28,14 @@ pub async fn stop_lab(
     spawn::delete_lab(State(state), payload.container_id).await;
     Json(StopResponse {
         status: "stopped".into(),
+    })
+}
+
+pub async fn status_lab(
+    State(state): State<crate::models::state::State>,
+    Json(payload): Json<StatusRequest>,
+) -> Json<StatusResponse> {
+    Json(StatusResponse {
+        status: spawn::status_lab(State(state), payload.container_id).await,
     })
 }
