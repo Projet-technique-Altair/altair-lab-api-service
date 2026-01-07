@@ -18,7 +18,12 @@ pub async fn spawn_lab(
     })
 }
 
-pub async fn stop_lab(Json(_payload): Json<StopRequest>) -> Json<StopResponse> {
+pub async fn stop_lab(
+    State(state): State<crate::models::state::State>,
+    Json(payload): Json<StopRequest>,
+) -> Json<StopResponse> {
+    // TODO: Implement error handling
+    spawn::delete_lab(State(state), payload.container_id).await;
     Json(StopResponse {
         status: "stopped".into(),
     })

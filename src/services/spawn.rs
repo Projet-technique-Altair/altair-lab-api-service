@@ -1,8 +1,10 @@
 use axum::extract::State;
 
 use k8s_openapi::api::core::v1::{Container, Pod, PodSpec};
-use kube::{api::PostParams, Api};
-
+use kube::{
+    api::{DeleteParams, PostParams},
+    Api,
+};
 use uuid::Uuid;
 
 use crate::models::state;
@@ -35,4 +37,14 @@ pub async fn spawn_lab(State(state): State<state::State>) -> String {
         .await
         .expect("failed to create pod");
     pod_name
+}
+
+pub async fn delete_lab(State(state): State<state::State>, pod_name: String) {
+    println!("{}", pod_name);
+    let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), "default");
+
+    let dp = DeleteParams::default();
+    pods.delete(&pod_name, &dp)
+        .await
+        .expect("deleting went wrong");
 }
