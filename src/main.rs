@@ -28,9 +28,10 @@ async fn main() {
 
     let app = init_routes().layer(cors).with_state(state);
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8085").await.unwrap();
+    let PORT = std::env::var("PORT").unwrap_or("8085".to_string());
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", PORT)).await.unwrap();
 
-    println!("Lab API Service running on http://localhost:8085");
+    println!("The service started on port: {}", PORT);
 
     axum::serve(listener, app).await.unwrap();
 }
