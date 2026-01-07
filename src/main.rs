@@ -1,7 +1,7 @@
 // use gcp_auth;
+use kube::Client;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
-use kube::Client;
 
 mod auth;
 mod models;
@@ -23,15 +23,19 @@ async fn main() {
 
     let state = crate::models::state::State {
         //token_provider: gcp_auth::provider().await.unwrap(),
-        kube_client: Client::try_default().await.expect("Something is rotten in the state of Alabama and idk what"),
+        kube_client: Client::try_default()
+            .await
+            .expect("Something is rotten in the state of Alabama and idk what"),
     };
 
     let app = init_routes().layer(cors).with_state(state);
 
-    let PORT = std::env::var("PORT").unwrap_or("8085".to_string());
-    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", PORT)).await.unwrap();
+    let port = std::env::var("PORT").unwrap_or("8085".to_string());
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
+        .await
+        .unwrap();
 
-    println!("The service started on port: {}", PORT);
+    println!("The service started on port: {}", port);
 
     axum::serve(listener, app).await.unwrap();
 }

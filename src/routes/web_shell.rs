@@ -1,13 +1,10 @@
 use axum::{
-    extract::{
-        ws::WebSocketUpgrade,
-        Path, State,
-    },
+    extract::{ws::WebSocketUpgrade, Path, State},
     response::IntoResponse,
 };
 
-use crate::services::web_shell::handle_terminal;
 use crate::models::state;
+use crate::services::web_shell::handle_terminal;
 
 pub async fn lab_terminal_ws(
     ws: WebSocketUpgrade,

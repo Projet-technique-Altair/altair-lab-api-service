@@ -2,21 +2,14 @@ use axum::extract::ws::{Message, WebSocket};
 
 use futures::{SinkExt, StreamExt};
 
-use kube::{
-    api::AttachParams,
-    Api,
-};
 use k8s_openapi::api::core::v1::Pod;
+use kube::{api::AttachParams, Api};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::models::state;
 
-pub async fn handle_terminal(
-    socket: WebSocket,
-    pod_name: String,
-    state: state::State,
-) {
+pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: state::State) {
     let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), "default");
 
     let ap = AttachParams {
@@ -40,28 +33,25 @@ pub async fn handle_terminal(
     let to_pod = async {
         while let Some(Ok(msg)) = ws_rx.next().await {
             match msg {
-                // ✅ BEST CASE: raw bytes (xterm.js, websocat -b)
                 Message::Binary(data) => {
                     if stdin.write_all(&data).await.is_err() {
                         break;
                     }
                 }
 
-                // ⚠️ Fallback: text input (websocat without -b)
-                Message::Text(text) => {
-                    let mut data = text.into_bytes();
-                    data.push(b'\n'); // 🔑 REQUIRED for /bin/sh
-                    if stdin.write_all(&data).await.is_err() {
-                        break;
-                    }
-                }
-
+                // Commented out as normaly the frontend should be sending binary and not text
+                //Message::Text(text) => {
+                //    let mut data = text.into_bytes();
+                //    data.push(b'\n');
+                //    if stdin.write_all(&data).await.is_err() {
+                //        break;
+                //    }
+                //}
                 Message::Close(_) => break,
                 _ => {}
             }
         }
 
-        // Only close stdin when WS is gone
         let _ = stdin.shutdown().await;
     };
 
