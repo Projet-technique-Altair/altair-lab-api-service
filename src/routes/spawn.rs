@@ -11,11 +11,11 @@ pub async fn spawn_lab(
 ) -> Json<SpawnResponse> {
     // !!! For now just deploying a debian image
     // TODO: Next step in the implementation - get the lab id and get the container from the registry
-    let pod_name = spawn::spawn_lab(State(state)).await;
+    let pod_name = spawn::spawn_lab(State(state)).await.unwrap();
 
     Json(SpawnResponse {
         container_id: pod_name.clone(),
-        webshell_url: format!("ws://localhost:8085/ws/labs/{pod_name}"),
+        webshell_url: format!("ws://localhost:8085/spawn/webshell/{pod_name}"),
         status: "Running".into(),
     })
 }
