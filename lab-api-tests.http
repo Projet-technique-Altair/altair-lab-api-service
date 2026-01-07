@@ -1,29 +1,13 @@
-############################################################
-# LAB-API-SERVICE TESTS (PORT 8085)
-############################################################
-
 ### Health check
 GET http://localhost:8085/health
 
-
-
-############################################################
-# SPAWN LAB (START CONTAINER)
-############################################################
-
-### Spawn a lab (minimal payload)
+### Spawn a lab
 POST http://localhost:8085/spawn
 Content-Type: application/json
 
 {
   "lab_id": "456796d9-a308-4fce-8659-b70c9e17985b"
 }
-
-
-
-############################################################
-# STOP LAB (STOP CONTAINER)
-############################################################
 
 ### Stop a lab container
 POST http://localhost:8085/spawn/stop
@@ -32,7 +16,6 @@ Content-Type: application/json
 {
   "container_id": "d27fe618-767b-4a2a-afe8-90ec07124f45"
 }
-
 
 ### Status of a pod
 GET http://localhost:8085/spawn/status
