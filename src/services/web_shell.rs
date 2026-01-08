@@ -69,7 +69,7 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: state::
             }
 
             if ws_tx
-                .send(Message::Binary(buf[..n].to_vec()))
+                .send(Message::Binary(buf[..n].to_vec().into()))
                 .await
                 .is_err()
             {

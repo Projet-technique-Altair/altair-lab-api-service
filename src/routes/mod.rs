@@ -17,5 +17,5 @@ pub fn init_routes() -> Router<crate::models::state::State> {
         .route("/spawn", post(spawn_lab))
         .route("/spawn/stop", post(stop_lab))
         .route("/spawn/status", get(status_lab))
-        .route("/spawn/webshell/:pod_name", get(lab_terminal_ws))
+        .route("/spawn/webshell/{pod_name}", get(lab_terminal_ws))
 }
