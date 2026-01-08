@@ -1,9 +1,12 @@
-use axum::Router;
+// use gcp_auth;
+use kube::Client;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
 
-mod routes;
+mod auth;
 mod models;
+mod routes;
+mod services;
 
 use crate::routes::init_routes;
 
@@ -18,15 +21,21 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = init_routes().layer(cors);
+    let state = crate::models::state::State {
+        //token_provider: gcp_auth::provider().await.unwrap(),
+        kube_client: Client::try_default()
+            .await
+            .expect("Something is rotten in the state of Alabama and idk what"),
+    };
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8085")
+    let app = init_routes().layer(cors).with_state(state);
+
+    let port = std::env::var("PORT").unwrap_or("8085".to_string());
+    let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", port))
         .await
         .unwrap();
 
-    println!("Lab API Service running on http://localhost:8085");
+    println!("The service started on port: {}", port);
 
-    axum::serve(listener, app)
-        .await
-        .unwrap();
+    axum::serve(listener, app).await.unwrap();
 }
