@@ -1,25 +1,28 @@
-# Altair Lab API Service (Mock)
+# Altair Lab API Service 
 
-This microservice is responsible for spawning and stopping lab instances for the Altaïr platform.
-For the PoC (Proof of Concept), the service does **not** launch real containers.
-Instead, it returns mock responses for integration tests with the frontend, gateway, and Grafana.
-
+Microservice responsible for launching and stopping Kubernetes pods as well as allowing access to them via a websocket.
 ---
 
-## ✨ Features (PoC version)
+##  Features (PoC version)
 
 - `POST /spawn`  
-  Returns a mock container ID and a mock WebShell URL.
+  Returns a mock container ID and a WebShell URL.
 
 - `POST /spawn/stop`  
   Simulates stopping a lab session.
 
+- `GET /spawn/status`
+ 
+  Returns status of a pod by name. 
+
 - `/health`  
   Simple liveness endpoint.
 
----
+- `WEBSOCKET /spawn/webshell`
 
-## 🚀 Run locally (development)
+  Allows to connect to the webshell of a pod by name
 
-```bash
-cargo run
+## TODO:
+  * Proper error handling for all the various problems that may arise
+  * Authentication for the webshell
+  * Pulling the proper image by a lab id (currently using basic debian)
