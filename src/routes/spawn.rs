@@ -11,7 +11,7 @@ pub async fn spawn_lab(
 ) -> Json<SpawnResponse> {
     // !!! For now just deploying a debian image
     // TODO: Next step in the implementation - get the lab id and get the container from the registry
-    let pod_name = spawn::spawn_lab(State(state)).await.expect("An error has occured while spawning the pod");
+    let pod_name = spawn::spawn_lab(State(state)).await.expect("An error has occurred while spawning the pod");
 
     Json(SpawnResponse {
         container_id: pod_name.clone(),
@@ -27,7 +27,7 @@ pub async fn stop_lab(
     // TODO: Implement error handling
     spawn::delete_lab(State(state), payload.container_id).await;
     Json(StopResponse {
-        status: "stopped".into(),
+        status: "Stopped".into(),
     })
 }
 

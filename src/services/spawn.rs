@@ -89,11 +89,11 @@ pub async fn delete_lab(State(state): State<state::State>, pod_name: String) {
     let dp = DeleteParams::default();
     pods.delete(&pod_name, &dp)
         .await
-        .expect("deleting went wrong");
+        .expect("Error: Deleting went wrong");
 }
 
 pub async fn status_lab(State(state): State<state::State>, pod_name: String) -> String {
     let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), "default");
-    let pod = pods.get(pod_name.as_str()).await.expect("PULAMEA");
-    pod.status.expect("PIZDAMATI").phase.expect("COAIE")
+    let pod = pods.get(pod_name.as_str()).await.expect("Error: An error occurred while trying to get Pod by its name");
+    pod.status.expect("Error: An error occurred while trying to get the status of a Pod").phase.expect("Error: An error occurred while trying to get the status phase of the pod")
 }

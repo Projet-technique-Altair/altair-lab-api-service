@@ -25,7 +25,7 @@ async fn main() {
         //token_provider: gcp_auth::provider().await.unwrap(),
         kube_client: Client::try_default()
             .await
-            .expect("Something is rotten in the state of Alabama and idk what"),
+            .expect("An error has occured while trying to initialize the Kubernetes cluster connection, possibly the credentials are not there."),
     };
 
     let app = init_routes().layer(cors).with_state(state);
