@@ -1,5 +1,5 @@
 use crate::models::{
-    SpawnRequest, SpawnResponse, StatusRequest, StatusResponse, StopRequest, StopResponse,
+    SpawnRequest, SpawnResponse, StatusRequest, StatusResponse, StopRequest, StopResponse, SpawnResponseData,
 };
 use crate::services::spawn;
 
@@ -7,16 +7,19 @@ use axum::{extract::State, Json};
 
 pub async fn spawn_lab(
     State(state): State<crate::models::state::State>,
-    Json(_payload): Json<SpawnRequest>,
+    Json(payload): Json<SpawnRequest>,
 ) -> Json<SpawnResponse> {
     // !!! For now just deploying a debian image
     // TODO: Next step in the implementation - get the lab id and get the container from the registry
     let pod_name = spawn::spawn_lab(State(state)).await.expect("An error has occurred while spawning the pod");
 
     Json(SpawnResponse {
-        container_id: pod_name.clone(),
-        webshell_url: format!("ws://localhost:8085/spawn/webshell/{pod_name}"),
-        status: "Running".into(),
+        success: true,
+        data: SpawnResponseData {
+            pod_name: pod_name.clone(),
+            webshell_url: format!("ws://localhost:8080/ws/{}", pod_name),
+            status: "RUNNING".to_string()
+        }
     })
 }
 

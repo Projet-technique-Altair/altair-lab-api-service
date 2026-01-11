@@ -6,7 +6,9 @@ POST http://localhost:8085/spawn
 Content-Type: application/json
 
 {
-  "lab_id": "456796d9-a308-4fce-8659-b70c9e17985b"
+  "session_id": "456796d9-a308-4fce-8659-b70c9e17985b",
+  "lab_type": "ctf123",
+  "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab-path-hijacking-guided:latest"
 }
 
 ### Stop a lab container

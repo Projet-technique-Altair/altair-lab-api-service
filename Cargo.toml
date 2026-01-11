@@ -12,5 +12,5 @@ tracing-subscriber = { version = "0.3.22", features = ["fmt", "env-filter"] }
 # gcp_auth = "0.12.6" I wanna kms, I have implemented authentication twice and apparently the fucking kube crate handles it for you
 kube = {version = "2.0.1", features = ["runtime", "derive", "ws"]}
 k8s-openapi = {version = "0.26.1", features = ["latest"]}
-uuid = { version = "1.19.0", features = ["v4"] }
+uuid = { version = "1.19.0", features = ["v4", "serde"] }
 futures = "0.3.31"
