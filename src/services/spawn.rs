@@ -94,6 +94,12 @@ pub async fn delete_lab(State(state): State<state::State>, pod_name: String) {
 
 pub async fn status_lab(State(state): State<state::State>, pod_name: String) -> String {
     let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), "default");
-    let pod = pods.get(pod_name.as_str()).await.expect("Error: An error occurred while trying to get Pod by its name");
-    pod.status.expect("Error: An error occurred while trying to get the status of a Pod").phase.expect("Error: An error occurred while trying to get the status phase of the pod")
+    let pod = pods
+        .get(pod_name.as_str())
+        .await
+        .expect("Error: An error occurred while trying to get Pod by its name");
+    pod.status
+        .expect("Error: An error occurred while trying to get the status of a Pod")
+        .phase
+        .expect("Error: An error occurred while trying to get the status phase of the pod")
 }

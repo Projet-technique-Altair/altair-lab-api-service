@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct SpawnRequest {
-    pub session_id: Uuid,
-    pub lab_type: String, // Possibly replace with enum down the road
-    pub template_path: String,
+    pub _session_id: Uuid,
+    pub _lab_type: String, // Possibly replace with enum down the road
+    pub _template_path: String,
 }
 
 #[derive(Serialize)]
