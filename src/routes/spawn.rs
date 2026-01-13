@@ -4,26 +4,22 @@ use crate::models::{
 };
 use crate::services::spawn;
 
-use axum::{extract::State, Json};
+use axum::{extract::State, http::StatusCode, Json};
 
 pub async fn spawn_lab(
     State(state): State<crate::models::state::State>,
-    Json(_payload): Json<SpawnRequest>,
-) -> Json<SpawnResponse> {
-    // !!! For now just deploying a debian image
-    // TODO: Next step in the implementation - get the lab id and get the container from the registry
-    let pod_name = spawn::spawn_lab(State(state))
-        .await
-        .expect("An error has occurred while spawning the pod");
+    Json(payload): Json<SpawnRequest>,
+) -> Result<Json<SpawnResponse>, StatusCode> {
+    let pod_name = spawn::spawn_lab(state, payload).await?;
 
-    Json(SpawnResponse {
+    Ok(Json(SpawnResponse {
         success: true,
         data: SpawnResponseData {
             pod_name: pod_name.clone(),
-            webshell_url: format!("ws://localhost:8080/ws/{}", pod_name),
+            webshell_url: format!("ws://lab-api-service:8080/ws/{}", pod_name),
             status: "RUNNING".to_string(),
         },
-    })
+    }))
 }
 
 pub async fn stop_lab(
@@ -31,7 +27,7 @@ pub async fn stop_lab(
     Json(payload): Json<StopRequest>,
 ) -> Json<StopResponse> {
     // TODO: Implement error handling
-    spawn::delete_lab(State(state), payload.container_id).await;
+    spawn::delete_lab(state, payload.container_id).await;
     Json(StopResponse {
         status: "Stopped".into(),
     })
@@ -42,6 +38,6 @@ pub async fn status_lab(
     Json(payload): Json<StatusRequest>,
 ) -> Json<StatusResponse> {
     Json(StatusResponse {
-        status: spawn::status_lab(State(state), payload.container_id).await,
+        status: spawn::status_lab(state, payload.container_id).await,
     })
 }

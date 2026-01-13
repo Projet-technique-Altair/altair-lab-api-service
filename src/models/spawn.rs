@@ -3,9 +3,9 @@ use uuid::Uuid;
 
 #[derive(Deserialize)]
 pub struct SpawnRequest {
-    pub _session_id: Uuid,
-    pub _lab_type: String, // Possibly replace with enum down the road
-    pub _template_path: String,
+    pub session_id: Uuid,
+    pub lab_type: String,      // e.g. "ctf_terminal_guided"
+    pub template_path: String, // e.g. "altair/lab-path-hijacking-guided:v1"
 }
 
 #[derive(Serialize)]
@@ -16,7 +16,6 @@ pub struct SpawnResponse {
 
 #[derive(Serialize)]
 pub struct SpawnResponseData {
-    #[serde(rename = "data")]
     pub pod_name: String,
     pub webshell_url: String,
     pub status: String,
