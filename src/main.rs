@@ -1,4 +1,3 @@
-// use gcp_auth;
 use kube::Client;
 use tower_http::cors::{Any, CorsLayer};
 use tracing_subscriber::EnvFilter;
@@ -21,8 +20,12 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
+    let token_provider = gcp_auth::provider().await.expect(
+        "Failed to initialize GCP auth provider. Make sure GOOGLE_APPLICATION_CREDENTIALS is set or running on GCP.",
+    );
+
     let state = crate::models::state::State {
-        //token_provider: gcp_auth::provider().await.unwrap(),
+        token_provider,
         kube_client: Client::try_default()
             .await
             .expect("An error has occured while trying to initialize the Kubernetes cluster connection, possibly the credentials are not there."),

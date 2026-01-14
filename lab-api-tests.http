@@ -7,9 +7,9 @@ Content-Type: application/json
 Timeout: 3600
 
 {
-  "session_id": "456796d9-a308-4fce-8659-b70c9e17985b",
+  "session_id": "456756d9-a348-4fce-8659-b70c1e17985b",
   "lab_type": "ctf_terminal_guided",
-  "template_path": "debian:latest"
+  "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab-path-hijacking-guided:latest"
 }
 
 ### Stop a lab container
