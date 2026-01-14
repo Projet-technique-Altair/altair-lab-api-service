@@ -18,7 +18,7 @@ pub async fn spawn_lab(
         success: true,
         data: SpawnResponseData {
             pod_name: pod_name.clone(),
-            webshell_url: format!("ws://lab-api-service:8080/ws/{}", pod_name),
+            webshell_url: format!("ws://lab-api-service:8080/spawn/webshell/{}", pod_name),
             status: "RUNNING".to_string(),
         },
     }))
