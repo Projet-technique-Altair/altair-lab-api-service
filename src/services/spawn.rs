@@ -46,7 +46,8 @@ pub async fn spawn_lab(state: state::State, payload: SpawnRequest) -> Result<Str
         },
         spec: Some(PodSpec {
             image_pull_secrets: std::env::var("IMAGE_PULL_SECRET")
-                .ok().map(|name| vec![LocalObjectReference { name }]),
+                .ok()
+                .map(|name| vec![LocalObjectReference { name }]),
             containers: vec![Container {
                 name: "lab-container".into(),
                 image: Some(payload.template_path.clone()),
@@ -88,7 +89,7 @@ pub async fn spawn_lab(state: state::State, payload: SpawnRequest) -> Result<Str
     let wait_result = timeout(Duration::from_secs(30), async {
         while let Some(event) = watcher.next().await {
             let pod = match event {
-                Ok(kube::api::WatchEvent::Modified(p)) => p,
+                Ok(kube::api::WatchEvent::Added(p)) | Ok(kube::api::WatchEvent::Modified(p)) => p,
                 _ => continue,
             };
 
@@ -109,11 +110,22 @@ pub async fn spawn_lab(state: state::State, payload: SpawnRequest) -> Result<Str
 fn is_pod_ready(pod: &Pod) -> bool {
     pod.status
         .as_ref()
-        .and_then(|s| s.conditions.as_ref())
-        .map(|conds| {
-            conds
-                .iter()
-                .any(|c| c.type_ == "Ready" && c.status == "True")
+        .map(|status| {
+            // Check if phase is Running
+            let phase_running = status
+                .phase
+                .as_ref()
+                .map(|p| p == "Running")
+                .unwrap_or(false);
+
+            // Check if all containers are ready
+            let containers_ready = status
+                .container_statuses
+                .as_ref()
+                .map(|statuses| !statuses.is_empty() && statuses.iter().all(|cs| cs.ready))
+                .unwrap_or(false);
+
+            phase_running && containers_ready
         })
         .unwrap_or(false)
 }
