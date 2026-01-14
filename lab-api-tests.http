@@ -4,9 +4,12 @@ GET http://localhost:8085/health
 ### Spawn a lab
 POST http://localhost:8085/spawn
 Content-Type: application/json
+Timeout: 3600
 
 {
-  "lab_id": "456796d9-a308-4fce-8659-b70c9e17985b"
+  "session_id": "456756d9-a348-4fce-8659-b70c1e17985b",
+  "lab_type": "ctf_terminal_guided",
+  "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab-path-hijacking-guided:latest"
 }
 
 ### Stop a lab container
@@ -22,5 +25,5 @@ GET http://localhost:8085/spawn/status
 Content-Type: application/json
 
 {
-  "container_id": "4a7f3b75-4e5b-4a83-927d-48736e495b49"
+  "container_id": "ctf-session-456796d9-a308-4fce-8659-b70c9e17985b"
 }

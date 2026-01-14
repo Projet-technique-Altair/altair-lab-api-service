@@ -1,18 +1,18 @@
 use axum::extract::ws::{Message, WebSocket};
-
 use futures::{SinkExt, StreamExt};
-
 use k8s_openapi::api::core::v1::Pod;
 use kube::{api::AttachParams, Api};
-
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use crate::models::state;
+use crate::models::State;
 
-pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: state::State) {
-    let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), "default");
+const DEFAULT_NAMESPACE: &str = "default";
+const BUFFER_SIZE: usize = 4096;
 
-    let ap = AttachParams {
+pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) {
+    let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
+
+    let attach_params = AttachParams {
         stdin: true,
         stdout: true,
         stderr: false,
@@ -20,7 +20,14 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: state::
         ..Default::default()
     };
 
-    let mut exec = match pods.exec(&pod_name, vec!["/bin/bash"], &ap).await {
+    let mut exec = match pods
+        .exec(
+            &pod_name,
+            vec!["/bin/bash", "-lc", "exec su - student"],
+            &attach_params,
+        )
+        .await
+    {
         Ok(e) => e,
         Err(_) => return,
     };
@@ -38,38 +45,23 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: state::
                         break;
                     }
                 }
-
-                // Commented out as normaly the frontend should be sending binary and not text
-                //Message::Text(text) => {
-                //    let mut data = text.into_bytes();
-                //    data.push(b'\n');
-                //    if stdin.write_all(&data).await.is_err() {
-                //        break;
-                //    }
-                //}
                 Message::Close(_) => break,
                 _ => {}
             }
         }
-
         let _ = stdin.shutdown().await;
     };
 
     let from_pod = async {
-        let mut buf = [0u8; 4096];
+        let mut buf = [0u8; BUFFER_SIZE];
 
-        loop {
-            let n = match stdout.read(&mut buf).await {
-                Ok(n) => n,
-                Err(_) => break,
-            };
-
+        while let Ok(n) = stdout.read(&mut buf).await {
             if n == 0 {
                 break;
             }
 
             if ws_tx
-                .send(Message::Binary(buf[..n].to_vec()))
+                .send(Message::Binary(buf[..n].to_vec().into()))
                 .await
                 .is_err()
             {

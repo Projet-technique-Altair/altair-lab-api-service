@@ -1,21 +1,22 @@
-pub mod health;
-pub mod spawn;
-pub mod web_shell;
-
-use health::*;
-use spawn::*;
-use web_shell::lab_terminal_ws;
+mod health;
+mod spawn;
+mod web_shell;
 
 use axum::{
     routing::{get, post},
     Router,
 };
 
-pub fn init_routes() -> Router<crate::models::state::State> {
+use crate::models::State;
+
+pub fn init_routes() -> Router<State> {
     Router::new()
-        .route("/health", get(health))
-        .route("/spawn", post(spawn_lab))
-        .route("/spawn/stop", post(stop_lab))
-        .route("/spawn/status", get(status_lab))
-        .route("/spawn/webshell/:pod_name", get(lab_terminal_ws))
+        .route("/health", get(health::health))
+        .route("/spawn", post(spawn::spawn_lab))
+        .route("/spawn/stop", post(spawn::stop_lab))
+        .route("/spawn/status", get(spawn::status_lab))
+        .route(
+            "/spawn/webshell/{pod_name}",
+            get(web_shell::lab_terminal_ws),
+        )
 }

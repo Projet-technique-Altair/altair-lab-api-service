@@ -1,6 +1,8 @@
-pub mod spawn;
-pub mod state;
+mod spawn;
+mod state;
 
 pub use spawn::{
-    SpawnRequest, SpawnResponse, StatusRequest, StatusResponse, StopRequest, StopResponse,
+    SpawnRequest, SpawnResponse, SpawnResponseData, StatusRequest, StatusResponse, StopRequest,
+    StopResponse,
 };
+pub use state::State;
