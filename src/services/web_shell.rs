@@ -21,7 +21,11 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) 
     };
 
     let mut exec = match pods
-        .exec(&pod_name, vec!["/bin/bash"], &attach_params)
+        .exec(
+            &pod_name,
+            vec!["/bin/bash", "-lc", "exec su - student"],
+            &attach_params,
+        )
         .await
     {
         Ok(e) => e,
