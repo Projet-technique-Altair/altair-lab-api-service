@@ -3,13 +3,12 @@ use axum::{
     response::IntoResponse,
 };
 
-use crate::models::state;
-use crate::services::web_shell::handle_terminal;
+use crate::{models, services::web_shell};
 
 pub async fn lab_terminal_ws(
     ws: WebSocketUpgrade,
     Path(pod_name): Path<String>,
-    State(state): State<state::State>,
+    State(state): State<models::State>,
 ) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_terminal(socket, pod_name, state))
+    ws.on_upgrade(move |socket| web_shell::handle_terminal(socket, pod_name, state))
 }

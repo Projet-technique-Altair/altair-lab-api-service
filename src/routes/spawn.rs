@@ -1,13 +1,15 @@
-use crate::models::{
-    SpawnRequest, SpawnResponse, SpawnResponseData, StatusRequest, StatusResponse, StopRequest,
-    StopResponse,
-};
-use crate::services::spawn;
-
 use axum::{extract::State, http::StatusCode, Json};
 
+use crate::{
+    models::{
+        SpawnRequest, SpawnResponse, SpawnResponseData, StatusRequest, StatusResponse, StopRequest,
+        StopResponse,
+    },
+    services::spawn,
+};
+
 pub async fn spawn_lab(
-    State(state): State<crate::models::state::State>,
+    State(state): State<crate::models::State>,
     Json(payload): Json<SpawnRequest>,
 ) -> Result<Json<SpawnResponse>, StatusCode> {
     let pod_name = spawn::spawn_lab(state, payload).await?;
@@ -23,21 +25,21 @@ pub async fn spawn_lab(
 }
 
 pub async fn stop_lab(
-    State(state): State<crate::models::state::State>,
+    State(state): State<crate::models::State>,
     Json(payload): Json<StopRequest>,
 ) -> Json<StopResponse> {
-    // TODO: Implement error handling
     spawn::delete_lab(state, payload.container_id).await;
+
     Json(StopResponse {
-        status: "Stopped".into(),
+        status: "Stopped".to_string(),
     })
 }
 
 pub async fn status_lab(
-    State(state): State<crate::models::state::State>,
+    State(state): State<crate::models::State>,
     Json(payload): Json<StatusRequest>,
 ) -> Json<StatusResponse> {
-    Json(StatusResponse {
-        status: spawn::status_lab(state, payload.container_id).await,
-    })
+    let status = spawn::status_lab(state, payload.container_id).await;
+
+    Json(StatusResponse { status })
 }

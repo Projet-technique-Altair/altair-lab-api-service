@@ -1,6 +1,7 @@
+use std::sync::Arc;
+
 use gcp_auth::TokenProvider;
 use kube::Client;
-use std::sync::Arc;
 
 #[derive(Clone)]
 pub struct State {
