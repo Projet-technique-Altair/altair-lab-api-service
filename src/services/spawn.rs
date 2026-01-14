@@ -46,8 +46,7 @@ pub async fn spawn_lab(state: state::State, payload: SpawnRequest) -> Result<Str
         },
         spec: Some(PodSpec {
             image_pull_secrets: std::env::var("IMAGE_PULL_SECRET")
-                .ok()
-                .and_then(|name| Some(vec![LocalObjectReference { name }])),
+                .ok().map(|name| vec![LocalObjectReference { name }]),
             containers: vec![Container {
                 name: "lab-container".into(),
                 image: Some(payload.template_path.clone()),

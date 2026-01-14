@@ -58,12 +58,7 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: state::
     let from_pod = async {
         let mut buf = [0u8; 4096];
 
-        loop {
-            let n = match stdout.read(&mut buf).await {
-                Ok(n) => n,
-                Err(_) => break,
-            };
-
+        while let Ok(n) = stdout.read(&mut buf).await {
             if n == 0 {
                 break;
             }
