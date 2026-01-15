@@ -1,6 +1,8 @@
-mod health;
 mod spawn;
 mod web_shell;
+
+// Public for testing
+pub mod health;
 
 use axum::{
     routing::{get, post},

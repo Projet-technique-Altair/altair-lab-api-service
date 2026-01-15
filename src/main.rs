@@ -7,6 +7,9 @@ mod models;
 mod routes;
 mod services;
 
+#[cfg(test)]
+mod tests;
+
 const DEFAULT_PORT: &str = "8085";
 
 #[tokio::main]
