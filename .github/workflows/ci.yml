@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [ dev_kubernetes, dev, features/authentication ]
+    branches: [ dev_kubernetes, dev, features/authentication, features/unit-testing ]
   pull_request:
     branches: [ main, dev ]
 
