@@ -16,7 +16,7 @@ use crate::models::SpawnRequest;
 
 fn create_test_spawn_request() -> SpawnRequest {
     SpawnRequest {
-        session_id: Uuid::parse_str("456756d9-a348-4fce-8659-b70c1e17985b").unwrap(),
+        session_id: Uuid::new_v4(),
         lab_type: "ctf_terminal_guided".to_string(),
         template_path: "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest".to_string(),
     }
@@ -153,7 +153,7 @@ fn test_build_pod_metadata() {
     );
     assert_eq!(
         labels.get("session_id"),
-        Some(&"456756d9-a348-4fce-8659-b70c1e17985b".to_string())
+        Some(&payload.session_id.to_string())
     );
 }
 
@@ -412,17 +412,18 @@ fn test_is_pod_failed_pending() {
 
 #[test]
 fn test_spawn_request_deserialize() {
-    let json = r#"{
-        "session_id": "456756d9-a348-4fce-8659-b70c1e17985b",
-        "lab_type": "ctf_terminal_guided",
-        "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest"
-    }"#;
-
-    let request: SpawnRequest = serde_json::from_str(json).unwrap();
-    assert_eq!(
-        request.session_id,
-        Uuid::parse_str("456756d9-a348-4fce-8659-b70c1e17985b").unwrap()
+    let session_id = Uuid::new_v4();
+    let json = format!(
+        r#"{{
+            "session_id": "{}",
+            "lab_type": "ctf_terminal_guided",
+            "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest"
+        }}"#,
+        session_id
     );
+
+    let request: SpawnRequest = serde_json::from_str(&json).unwrap();
+    assert_eq!(request.session_id, session_id);
     assert_eq!(request.lab_type, "ctf_terminal_guided");
     assert_eq!(
         request.template_path,
@@ -444,12 +445,16 @@ fn test_spawn_request_invalid_uuid() {
 
 #[test]
 fn test_spawn_request_missing_field() {
-    let json = r#"{
-        "session_id": "456756d9-a348-4fce-8659-b70c1e17985b",
-        "lab_type": "ctf_terminal_guided"
-    }"#;
+    let session_id = Uuid::new_v4();
+    let json = format!(
+        r#"{{
+            "session_id": "{}",
+            "lab_type": "ctf_terminal_guided"
+        }}"#,
+        session_id
+    );
 
-    let result: Result<SpawnRequest, _> = serde_json::from_str(json);
+    let result: Result<SpawnRequest, _> = serde_json::from_str(&json);
     assert!(result.is_err());
 }
 
@@ -523,31 +528,29 @@ fn test_status_response_serialize() {
 
 #[test]
 fn test_pod_name_format() {
-    let session_id = Uuid::parse_str("456756d9-a348-4fce-8659-b70c1e17985b").unwrap();
+    let session_id = Uuid::new_v4();
     let pod_name = format!("ctf-session-{}", session_id);
 
-    assert_eq!(pod_name, "ctf-session-456756d9-a348-4fce-8659-b70c1e17985b");
     assert!(pod_name.starts_with("ctf-session-"));
+    assert!(pod_name.contains(&session_id.to_string()));
 }
 
 #[test]
 fn test_secret_name_format() {
-    let session_id = Uuid::parse_str("456756d9-a348-4fce-8659-b70c1e17985b").unwrap();
+    let session_id = Uuid::new_v4();
     let secret_name = format!("gcr-secret-{}", session_id);
 
-    assert_eq!(
-        secret_name,
-        "gcr-secret-456756d9-a348-4fce-8659-b70c1e17985b"
-    );
     assert!(secret_name.starts_with("gcr-secret-"));
+    assert!(secret_name.contains(&session_id.to_string()));
 }
 
 #[test]
 fn test_webshell_url_format() {
-    let pod_name = "ctf-session-456756d9-a348-4fce-8659-b70c1e17985b";
+    let session_id = Uuid::new_v4();
+    let pod_name = format!("ctf-session-{}", session_id);
     let webshell_url = format!("ws://lab-api-service:8080/spawn/webshell/{}", pod_name);
 
     assert!(webshell_url.starts_with("ws://"));
     assert!(webshell_url.contains("/spawn/webshell/"));
-    assert!(webshell_url.ends_with(pod_name));
+    assert!(webshell_url.ends_with(&pod_name));
 }
