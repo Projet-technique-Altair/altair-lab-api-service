@@ -22,6 +22,32 @@ Microservice responsible for launching and stopping Kubernetes pods as well as a
 
   Allows to connect to the webshell of a pod by name
 
+## Environment Variables
+
+### Local Development
+
+When running locally, the service will use your default kubeconfig (`~/.kube/config`) to connect to Kubernetes.
+
+### Cloud Run Deployment (GKE Connection)
+
+When deploying to Cloud Run, set the following environment variables to connect to your GKE cluster:
+
+| Variable               | Description                                                   |
+|------------------------|---------------------------------------------------------------|
+| `GKE_CLUSTER_ENDPOINT` | The GKE cluster API endpoint (e.g., `https://34.xxx.xxx.xxx`) |
+| `GKE_CLUSTER_CA`       | Base64-encoded cluster CA certificate                         |
+| `PORT`                 | (Optional) Server port, defaults to `8085`                    |
+
+#### How to get GKE cluster credentials:
+
+```bash
+# Get the cluster endpoint
+gcloud container clusters describe <CLUSTER_NAME> --zone <ZONE> --format="value(endpoint)"
+
+# Get the CA certificate (base64-encoded)
+gcloud container clusters describe <CLUSTER_NAME> --zone <ZONE> --format="value(masterAuth.clusterCaCertificate)"
+```
+
 ## TODO:
   * Proper error handling for all the various problems that may arise
   * Authentication for the webshell
