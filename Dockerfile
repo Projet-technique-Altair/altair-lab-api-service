@@ -17,6 +17,9 @@ RUN cargo build --release
 # ---- Runtime ----
 FROM debian:stable-slim
 
+# Install CA certificates for TLS verification
+RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
+
 # Copie le binaire seulement
 COPY --from=builder /usr/src/app/target/release/altair-lab-api-service /usr/local/bin/lab-api
 
