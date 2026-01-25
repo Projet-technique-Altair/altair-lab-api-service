@@ -1,9 +1,12 @@
-use axum::{extract::State, http::StatusCode, Json};
+use axum::{
+    extract::{Path, State},
+    http::StatusCode,
+    Json,
+};
 
 use crate::{
     models::{
-        SpawnRequest, SpawnResponse, SpawnResponseData, StatusRequest, StatusResponse, StopRequest,
-        StopResponse,
+        SpawnRequest, SpawnResponse, SpawnResponseData, StatusResponse, StopRequest, StopResponse,
     },
     services::spawn,
 };
@@ -46,9 +49,9 @@ pub async fn stop_lab(
 
 pub async fn status_lab(
     State(state): State<crate::models::State>,
-    Json(payload): Json<StatusRequest>,
+    Path(container_id): Path<String>,
 ) -> Json<StatusResponse> {
-    let status = spawn::status_lab(state, payload.container_id).await;
+    let status = spawn::status_lab(state, container_id).await;
 
     Json(StatusResponse { status })
 }

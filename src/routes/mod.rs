@@ -16,7 +16,7 @@ pub fn init_routes() -> Router<State> {
         .route("/health", get(health::health))
         .route("/spawn", post(spawn::spawn_lab))
         .route("/spawn/stop", post(spawn::stop_lab))
-        .route("/spawn/status", get(spawn::status_lab))
+        .route("/spawn/status/{container_id}", get(spawn::status_lab))
         .route(
             "/spawn/webshell/{pod_name}",
             get(web_shell::lab_terminal_ws),
