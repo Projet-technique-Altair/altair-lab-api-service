@@ -32,11 +32,12 @@ When running locally, the service will use your default kubeconfig (`~/.kube/con
 
 When deploying to Cloud Run, set the following environment variables to connect to your GKE cluster:
 
-| Variable               | Description                                                   |
-|------------------------|---------------------------------------------------------------|
-| `GKE_CLUSTER_ENDPOINT` | The GKE cluster API endpoint (e.g., `https://34.xxx.xxx.xxx`) |
-| `GKE_CLUSTER_CA`       | Base64-encoded cluster CA certificate                         |
-| `PORT`                 | (Optional) Server port, defaults to `8085`                    |
+| Variable               | Description                                                                                                                  |
+|------------------------|------------------------------------------------------------------------------------------------------------------------------|
+| `GKE_CLUSTER_ENDPOINT` | The GKE cluster API endpoint (e.g., `https://34.xxx.xxx.xxx`)                                                                |
+| `GKE_CLUSTER_CA`       | Base64-encoded cluster CA certificate                                                                                        |
+| `WEBSHELL_BASE_URL`    | Base URL for WebSocket connections (e.g., `ws://example.com:8080` or `wss://example.com`), defaults to `ws://localhost:8085` |
+| `PORT`                 | (Optional) Server port, defaults to `8085`                                                                                   |
 
 #### How to get GKE cluster credentials:
 

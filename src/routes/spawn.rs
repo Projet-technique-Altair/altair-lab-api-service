@@ -14,11 +14,20 @@ pub async fn spawn_lab(
 ) -> Result<Json<SpawnResponse>, StatusCode> {
     let pod_name = spawn::spawn_lab(state, payload).await?;
 
+    // Get WebSocket base URL from environment variable
+    let webshell_base_url =
+        std::env::var("WEBSHELL_BASE_URL").unwrap_or_else(|_| "ws://localhost:8085".to_string());
+    let webshell_url = format!(
+        "{}/spawn/webshell/{}",
+        webshell_base_url.trim_end_matches('/'),
+        pod_name
+    );
+
     Ok(Json(SpawnResponse {
         success: true,
         data: SpawnResponseData {
             pod_name: pod_name.clone(),
-            webshell_url: format!("ws://lab-api-service:8080/spawn/webshell/{}", pod_name),
+            webshell_url,
             status: "RUNNING".to_string(),
         },
     }))
