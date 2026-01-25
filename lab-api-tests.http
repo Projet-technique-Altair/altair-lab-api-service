@@ -1,29 +1,26 @@
+@baseUrl=http://localhost:8085
+
 ### Health check
-GET http://localhost:8085/health
+GET {{baseUrl}}/health
 
 ### Spawn a lab
-POST http://localhost:8085/spawn
+POST {{baseUrl}}/spawn
 Content-Type: application/json
 Timeout: 3600
 
 {
-  "session_id": " <andreeaioana.florea@gmail.com>496756d9-a348-4fce-8659-b70c1e17985b",
+  "session_id": "496756d9-b348-4fce-8659-b70c1e17985b",
   "lab_type": "ctf_terminal_guided",
   "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab-path-hijacking-guided:latest"
 }
 
 ### Stop a lab container
-POST http://localhost:8085/spawn/stop
+POST {{baseUrl}}/spawn/stop
 Content-Type: application/json
 
 {
-  "container_id": "d27fe618-767b-4a2a-afe8-90ec07124f45"
+  "container_id": "ctf-session-496756d9-b348-4fce-8659-b70c1e17985b"
 }
 
 ### Status of a pod
-GET http://localhost:8085/spawn/status
-Content-Type: application/json
-
-{
-  "container_id": "ctf-session-456796d9-a308-4fce-8659-b70c9e17985b"
-}
+GET {{baseUrl}}/spawn/status/ctf-session-496756d9-b348-4fce-8659-b70c2e17985b
