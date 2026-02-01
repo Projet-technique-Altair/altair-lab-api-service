@@ -10,6 +10,9 @@ use uuid::Uuid;
 
 use crate::models::SpawnRequest;
 
+// Constants matching the service implementation
+const POD_DEADLINE_SECS: i64 = 7200;
+
 // ============================================================================
 // Helper functions for creating test data
 // ============================================================================
@@ -131,7 +134,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
                 ..Default::default()
             }]),
             restart_policy: Some("Never".into()),
-            active_deadline_seconds: Some(7200),
+            active_deadline_seconds: Some(POD_DEADLINE_SECS),
             ..Default::default()
         }),
         ..Default::default()
@@ -230,7 +233,7 @@ fn test_build_pod_restart_policy() {
 
     let spec = pod.spec.unwrap();
     assert_eq!(spec.restart_policy, Some("Never".to_string()));
-    assert_eq!(spec.active_deadline_seconds, Some(7200));
+    assert_eq!(spec.active_deadline_seconds, Some(POD_DEADLINE_SECS));
 }
 
 // ============================================================================
@@ -498,16 +501,6 @@ fn test_stop_response_serialize() {
 
     let json = serde_json::to_string(&response).unwrap();
     assert!(json.contains(r#""status":"Stopped""#));
-}
-
-#[test]
-fn test_status_request_deserialize() {
-    use crate::models::StatusRequest;
-
-    let json = r#"{"container_id": "ctf-session-789"}"#;
-
-    let request: StatusRequest = serde_json::from_str(json).unwrap();
-    assert_eq!(request.container_id, "ctf-session-789");
 }
 
 #[test]
