@@ -22,19 +22,27 @@ use crate::models::{SpawnRequest, State};
 
 const GCP_SCOPE: &[&str] = &["https://www.googleapis.com/auth/cloud-platform"];
 const DEFAULT_NAMESPACE: &str = "default";
-const POD_TIMEOUT_SECS: u64 = 30;
+const POD_TIMEOUT_SECS: u64 = 60;
 const POD_DEADLINE_SECS: i64 = 7200;
 
 pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, StatusCode> {
-    if payload.lab_type != "ctf_terminal_guided" {
-        return Err(StatusCode::BAD_REQUEST);
+    match payload.lab_type.as_str() {
+        "ctf_terminal_guided" => spawn_pod(state, payload, "ctf-session".to_string()).await,
+        "ctf_web_guided" => spawn_pod(state, payload, "web-session".to_string()).await,
+        _ => Err(StatusCode::BAD_REQUEST),
     }
+}
 
+async fn spawn_pod(
+    state: State,
+    payload: SpawnRequest,
+    name_prefix: String,
+) -> Result<String, StatusCode> {
     let client = &state.kube_client;
     let pods: Api<Pod> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
     let secrets: Api<Secret> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
 
-    let pod_name = format!("ctf-session-{}", payload.session_id);
+    let pod_name = format!("{}-{}", name_prefix, payload.session_id);
     let secret_name = format!("gcr-secret-{}", payload.session_id);
 
     create_image_pull_secret(&state, &secrets, &secret_name, &payload.template_path).await?;
