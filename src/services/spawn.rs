@@ -6,9 +6,10 @@ use futures::StreamExt;
 use k8s_openapi::{
     api::core::v1::{
         Container, EmptyDirVolumeSource, LocalObjectReference, Pod, PodSpec, ResourceRequirements,
-        Secret, Volume, VolumeMount,
+        Secret, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
     },
     apimachinery::pkg::api::resource::Quantity,
+    apimachinery::pkg::util::intstr::IntOrString,
     ByteString,
 };
 use kube::{
@@ -24,11 +25,38 @@ const GCP_SCOPE: &[&str] = &["https://www.googleapis.com/auth/cloud-platform"];
 const DEFAULT_NAMESPACE: &str = "default";
 const POD_TIMEOUT_SECS: u64 = 60;
 const POD_DEADLINE_SECS: i64 = 7200;
+const SERVICE_TIMEOUT_SECS: u64 = 120;
 
-pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, StatusCode> {
+pub struct SpawnResult {
+    pub pod_name: String,
+    pub web_url: Option<String>,
+}
+
+pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<SpawnResult, StatusCode> {
     match payload.lab_type.as_str() {
-        "ctf_terminal_guided" => spawn_pod(state, payload, "ctf-session".to_string()).await,
-        "ctf_web_guided" => spawn_pod(state, payload, "web-session".to_string()).await,
+        "ctf_terminal_guided" => {
+            let pod_name = spawn_pod(state, payload, "ctf-session".to_string(), false).await?;
+            Ok(SpawnResult {
+                pod_name,
+                web_url: None,
+            })
+        }
+        "ctf_web_guided" => {
+            let pod_name = spawn_pod(
+                state.clone(),
+                payload.clone(),
+                "web-session".to_string(),
+                true,
+            )
+            .await?;
+            let web_url =
+                create_load_balancer_service(&state, &pod_name, &payload.session_id.to_string())
+                    .await?;
+            Ok(SpawnResult {
+                pod_name,
+                web_url: Some(web_url),
+            })
+        }
         _ => Err(StatusCode::BAD_REQUEST),
     }
 }
@@ -37,6 +65,7 @@ async fn spawn_pod(
     state: State,
     payload: SpawnRequest,
     name_prefix: String,
+    _create_service: bool,
 ) -> Result<String, StatusCode> {
     let client = &state.kube_client;
     let pods: Api<Pod> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
@@ -246,8 +275,150 @@ fn is_pod_failed(pod: &Pod) -> bool {
     phase_failed || container_failed
 }
 
+async fn create_load_balancer_service(
+    state: &State,
+    pod_name: &str,
+    session_id: &str,
+) -> Result<String, StatusCode> {
+    let client = &state.kube_client;
+    let services: Api<Service> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
+
+    let service_name = format!("lab-web-{}", session_id);
+
+    let service = Service {
+        metadata: kube::core::ObjectMeta {
+            name: Some(service_name.clone()),
+            labels: Some(BTreeMap::from([
+                ("app".to_string(), "altair-lab".to_string()),
+                ("session_id".to_string(), session_id.to_string()),
+            ])),
+            ..Default::default()
+        },
+        spec: Some(ServiceSpec {
+            type_: Some("LoadBalancer".to_string()),
+            selector: Some(BTreeMap::from([
+                ("app".to_string(), "altair-lab".to_string()),
+                ("session_id".to_string(), session_id.to_string()),
+            ])),
+            ports: Some(vec![ServicePort {
+                name: Some("http".to_string()),
+                port: 80,
+                target_port: Some(IntOrString::Int(3000)),
+                protocol: Some("TCP".to_string()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    // Delete existing service if any
+    let _ = services
+        .delete(&service_name, &DeleteParams::default())
+        .await;
+
+    services
+        .create(&PostParams::default(), &service)
+        .await
+        .map_err(|e| {
+            error!("Failed to create LoadBalancer service: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    info!(
+        "Created LoadBalancer service {} for pod {}",
+        service_name, pod_name
+    );
+
+    // Wait for the external IP to be assigned
+    let web_url = wait_for_external_ip(&services, &service_name).await?;
+    Ok(web_url)
+}
+
+async fn wait_for_external_ip(
+    services: &Api<Service>,
+    service_name: &str,
+) -> Result<String, StatusCode> {
+    let wp = WatchParams::default().fields(&format!("metadata.name={}", service_name));
+    let mut watcher = services
+        .watch(&wp, "0")
+        .await
+        .map_err(|e| {
+            error!("Failed to watch service: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?
+        .boxed();
+
+    let result = timeout(Duration::from_secs(SERVICE_TIMEOUT_SECS), async {
+        while let Some(event) = watcher.next().await {
+            let svc = match event {
+                Ok(kube::api::WatchEvent::Added(s) | kube::api::WatchEvent::Modified(s)) => s,
+                _ => continue,
+            };
+
+            if let Some(status) = &svc.status {
+                if let Some(lb) = &status.load_balancer {
+                    if let Some(ingress) = &lb.ingress {
+                        if let Some(first) = ingress.first() {
+                            if let Some(ip) = &first.ip {
+                                return Ok(format!("http://{}", ip));
+                            }
+                            if let Some(hostname) = &first.hostname {
+                                return Ok(format!("http://{}", hostname));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Err(StatusCode::REQUEST_TIMEOUT)
+    })
+    .await;
+
+    match result {
+        Ok(Ok(url)) => {
+            info!(
+                "LoadBalancer service {} assigned URL: {}",
+                service_name, url
+            );
+            Ok(url)
+        }
+        Ok(Err(status)) => Err(status),
+        Err(_) => {
+            error!(
+                "Timeout waiting for LoadBalancer IP for service {}",
+                service_name
+            );
+            Err(StatusCode::REQUEST_TIMEOUT)
+        }
+    }
+}
+
 pub async fn delete_lab(state: State, pod_name: String) {
     let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
+    let services: Api<Service> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
+
+    // Extract session_id from pod_name (format: "web-session-{session_id}" or "ctf-session-{session_id}")
+    let session_id = pod_name
+        .strip_prefix("web-session-")
+        .or_else(|| pod_name.strip_prefix("ctf-session-"));
+
+    // Delete the associated LoadBalancer service if it exists
+    if let Some(session_id) = session_id {
+        let service_name = format!("lab-web-{}", session_id);
+        if let Err(e) = services
+            .delete(&service_name, &DeleteParams::default())
+            .await
+        {
+            // Only log if it's not a "not found" error
+            if !matches!(e, kube::Error::Api(ref err) if err.code == 404) {
+                error!("Failed to delete service {}: {:?}", service_name, e);
+            }
+        } else {
+            info!("Deleted LoadBalancer service {}", service_name);
+        }
+    }
+
     pods.delete(&pod_name, &DeleteParams::default())
         .await
         .expect("Failed to delete pod");

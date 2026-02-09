@@ -15,7 +15,7 @@ pub async fn spawn_lab(
     State(state): State<crate::models::State>,
     Json(payload): Json<SpawnRequest>,
 ) -> Result<Json<SpawnResponse>, StatusCode> {
-    let pod_name = spawn::spawn_lab(state, payload).await?;
+    let result = spawn::spawn_lab(state, payload).await?;
 
     // Get WebSocket base URL from environment variable
     let webshell_base_url =
@@ -23,14 +23,15 @@ pub async fn spawn_lab(
     let webshell_url = format!(
         "{}/spawn/webshell/{}",
         webshell_base_url.trim_end_matches('/'),
-        pod_name
+        result.pod_name
     );
 
     Ok(Json(SpawnResponse {
         success: true,
         data: SpawnResponseData {
-            pod_name: pod_name.clone(),
+            pod_name: result.pod_name,
             webshell_url,
+            web_url: result.web_url,
             status: "RUNNING".to_string(),
         },
     }))

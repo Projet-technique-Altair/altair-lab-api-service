@@ -14,6 +14,16 @@ Timeout: 3600
   "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab-path-hijacking-guided:latest"
 }
 
+### Spawn a lab
+POST {{baseUrl}}/spawn
+Content-Type: application/json
+Timeout: 3600
+
+{
+  "session_id": "496756d9-b348-4fce-8659-b70c1e17981b",
+  "lab_type": "ctf_web_guided",
+  "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/ctf-web:v1"
+}
 ### Stop a lab container
 POST {{baseUrl}}/spawn/stop
 Content-Type: application/json

@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone)]
 pub struct SpawnRequest {
     pub session_id: Uuid,
     pub lab_type: String,      // e.g. "ctf_terminal_guided"
@@ -18,6 +18,8 @@ pub struct SpawnResponse {
 pub struct SpawnResponseData {
     pub pod_name: String,
     pub webshell_url: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub web_url: Option<String>,
     pub status: String,
 }
 

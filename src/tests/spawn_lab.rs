@@ -470,6 +470,7 @@ fn test_spawn_response_serialize() {
         data: SpawnResponseData {
             pod_name: "ctf-session-123".to_string(),
             webshell_url: "ws://lab-api-service:8080/spawn/webshell/ctf-session-123".to_string(),
+            web_url: None,
             status: "RUNNING".to_string(),
         },
     };
@@ -479,6 +480,26 @@ fn test_spawn_response_serialize() {
     assert!(json.contains(r#""pod_name":"ctf-session-123""#));
     assert!(json.contains(r#""status":"RUNNING""#));
     assert!(json.contains(r#""webshell_url""#));
+    // web_url should be omitted when None
+    assert!(!json.contains(r#""web_url""#));
+}
+
+#[test]
+fn test_spawn_response_serialize_with_web_url() {
+    use crate::models::{SpawnResponse, SpawnResponseData};
+
+    let response = SpawnResponse {
+        success: true,
+        data: SpawnResponseData {
+            pod_name: "web-session-456".to_string(),
+            webshell_url: "ws://lab-api-service:8080/spawn/webshell/web-session-456".to_string(),
+            web_url: Some("http://34.56.78.90".to_string()),
+            status: "RUNNING".to_string(),
+        },
+    };
+
+    let json = serde_json::to_string(&response).unwrap();
+    assert!(json.contains(r#""web_url":"http://34.56.78.90""#));
 }
 
 #[test]
