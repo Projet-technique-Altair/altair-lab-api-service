@@ -20,11 +20,17 @@ pub async fn spawn_lab(
     // Get WebSocket base URL from environment variable
     let webshell_base_url =
         std::env::var("WEBSHELL_BASE_URL").unwrap_or_else(|_| "ws://localhost:8085".to_string());
-    let webshell_url = format!(
-        "{}/spawn/webshell/{}",
-        webshell_base_url.trim_end_matches('/'),
-        result.pod_name
-    );
+
+    // For web labs, use the web URL as the webshell URL
+    let webshell_url = if let Some(ref web_url) = result.web_url {
+        web_url.clone()
+    } else {
+        format!(
+            "{}/spawn/webshell/{}",
+            webshell_base_url.trim_end_matches('/'),
+            result.pod_name
+        )
+    };
 
     Ok(Json(SpawnResponse {
         success: true,
