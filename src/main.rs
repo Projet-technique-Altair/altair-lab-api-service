@@ -48,6 +48,21 @@ async fn main() {
 }
 
 async fn init_state() -> Result<models::State, String> {
+    let local_mode = parse_bool_env("LAB_API_LOCAL_MODE", false);
+
+    if local_mode {
+        info!("LAB_API_LOCAL_MODE=true -> using local kubeconfig and skipping GCP auth init");
+        let kube_client = Client::try_default()
+            .await
+            .map_err(|e| format!("Kubernetes client init failed: {}", e))?;
+
+        return Ok(models::State {
+            token_provider: None,
+            kube_client,
+            local_mode: true,
+        });
+    }
+
     let token_provider = gcp_auth::provider().await.map_err(|e| {
         format!(
             "GCP auth init failed: {}. Ensure GOOGLE_APPLICATION_CREDENTIALS is set.",
@@ -58,8 +73,9 @@ async fn init_state() -> Result<models::State, String> {
     let kube_client = create_gke_client(&token_provider).await?;
 
     Ok(models::State {
-        token_provider,
+        token_provider: Some(token_provider),
         kube_client,
+        local_mode: false,
     })
 }
 
@@ -132,4 +148,14 @@ async fn create_gke_client(
                 .map_err(|e| format!("Kubernetes client init failed: {}", e))
         }
     }
+}
+
+fn parse_bool_env(key: &str, default: bool) -> bool {
+    std::env::var(key)
+        .ok()
+        .map(|v| {
+            let s = v.trim().to_ascii_lowercase();
+            matches!(s.as_str(), "1" | "true" | "yes" | "on")
+        })
+        .unwrap_or(default)
 }

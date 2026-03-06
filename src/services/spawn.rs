@@ -37,7 +37,11 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
     let pod_name = format!("ctf-session-{}", payload.session_id);
     let secret_name = format!("gcr-secret-{}", payload.session_id);
 
-    create_image_pull_secret(&state, &secrets, &secret_name, &payload.template_path).await?;
+    if state.local_mode {
+        info!("Local mode enabled: skipping GCP image pull secret creation");
+    } else {
+        create_image_pull_secret(&state, &secrets, &secret_name, &payload.template_path).await?;
+    }
 
     let pod = build_pod(&pod_name, &secret_name, &payload);
     pods.create(&PostParams::default(), &pod)
@@ -56,7 +60,12 @@ async fn create_image_pull_secret(
     secret_name: &str,
     template_path: &str,
 ) -> Result<(), StatusCode> {
-    let token = state.token_provider.token(GCP_SCOPE).await.map_err(|e| {
+    let provider = state.token_provider.as_ref().ok_or_else(|| {
+        error!("Missing token provider in non-local mode");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let token = provider.token(GCP_SCOPE).await.map_err(|e| {
         error!("Failed to get GCP token: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
