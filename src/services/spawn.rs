@@ -26,7 +26,7 @@ const POD_TIMEOUT_SECS: u64 = 30;
 const POD_DEADLINE_SECS: i64 = 7200;
 
 pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, StatusCode> {
-    if payload.lab_type != "ctf_terminal_guided" {
+    if !is_valid_lab_type(&payload.lab_type) {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -52,6 +52,15 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
         })?;
 
     wait_for_pod_ready(&pods, &pod_name).await
+}
+
+fn is_valid_lab_type(lab_type: &str) -> bool {
+    let trimmed = lab_type.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 63
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
 }
 
 async fn create_image_pull_secret(
