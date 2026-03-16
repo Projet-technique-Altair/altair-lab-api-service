@@ -1,7 +1,9 @@
 name: Lab API Service CD
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
 
@@ -11,6 +13,7 @@ permissions:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     uses: Projet-technique-Altair/altair-ci/.github/workflows/microservices-cd.yml@main
     with:
       gcp_project_id: ${{ vars.GCP_PROJECT_ID }}
