@@ -20,7 +20,7 @@ const POD_DEADLINE_SECS: i64 = 7200;
 fn create_test_spawn_request() -> SpawnRequest {
     SpawnRequest {
         session_id: Uuid::new_v4(),
-        lab_type: "ctf_terminal_guided".to_string(),
+        lab_type: "guided_terminal".to_string(),
         template_path: "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest".to_string(),
     }
 }
@@ -152,7 +152,7 @@ fn test_build_pod_metadata() {
     assert_eq!(labels.get("app"), Some(&"altair-lab".to_string()));
     assert_eq!(
         labels.get("lab_type"),
-        Some(&"ctf_terminal_guided".to_string())
+        Some(&"guided_terminal".to_string())
     );
     assert_eq!(
         labels.get("session_id"),
@@ -419,7 +419,7 @@ fn test_spawn_request_deserialize() {
     let json = format!(
         r#"{{
             "session_id": "{}",
-            "lab_type": "ctf_terminal_guided",
+            "lab_type": "guided_terminal",
             "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest"
         }}"#,
         session_id
@@ -427,7 +427,7 @@ fn test_spawn_request_deserialize() {
 
     let request: SpawnRequest = serde_json::from_str(&json).unwrap();
     assert_eq!(request.session_id, session_id);
-    assert_eq!(request.lab_type, "ctf_terminal_guided");
+    assert_eq!(request.lab_type, "guided_terminal");
     assert_eq!(
         request.template_path,
         "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest"
@@ -438,7 +438,7 @@ fn test_spawn_request_deserialize() {
 fn test_spawn_request_invalid_uuid() {
     let json = r#"{
         "session_id": "invalid-uuid",
-        "lab_type": "ctf_terminal_guided",
+        "lab_type": "guided_terminal",
         "template_path": "some/path"
     }"#;
 
@@ -452,7 +452,7 @@ fn test_spawn_request_missing_field() {
     let json = format!(
         r#"{{
             "session_id": "{}",
-            "lab_type": "ctf_terminal_guided"
+            "lab_type": "guided_terminal"
         }}"#,
         session_id
     );
@@ -513,6 +513,31 @@ fn test_status_response_serialize() {
 
     let json = serde_json::to_string(&response).unwrap();
     assert!(json.contains(r#""status":"Running""#));
+}
+
+fn is_valid_lab_type(lab_type: &str) -> bool {
+    let trimmed = lab_type.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 63
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
+#[test]
+fn test_is_valid_lab_type_accepts_legacy_and_new_values() {
+    assert!(is_valid_lab_type("ctf_terminal_guided"));
+    assert!(is_valid_lab_type("ctf_web_non_guided"));
+    assert!(is_valid_lab_type("guided_terminal"));
+    assert!(is_valid_lab_type("web"));
+}
+
+#[test]
+fn test_is_valid_lab_type_rejects_empty_or_invalid_values() {
+    assert!(!is_valid_lab_type(""));
+    assert!(!is_valid_lab_type("   "));
+    assert!(!is_valid_lab_type("guided terminal"));
+    assert!(!is_valid_lab_type("guided/terminal"));
 }
 
 // ============================================================================

@@ -26,7 +26,7 @@ const POD_TIMEOUT_SECS: u64 = 30;
 const POD_DEADLINE_SECS: i64 = 7200;
 
 pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, StatusCode> {
-    if payload.lab_type != "ctf_terminal_guided" {
+    if !is_valid_lab_type(&payload.lab_type) {
         return Err(StatusCode::BAD_REQUEST);
     }
 
@@ -37,7 +37,11 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
     let pod_name = format!("ctf-session-{}", payload.session_id);
     let secret_name = format!("gcr-secret-{}", payload.session_id);
 
-    create_image_pull_secret(&state, &secrets, &secret_name, &payload.template_path).await?;
+    if state.local_mode {
+        info!("Local mode enabled: skipping GCP image pull secret creation");
+    } else {
+        create_image_pull_secret(&state, &secrets, &secret_name, &payload.template_path).await?;
+    }
 
     let pod = build_pod(&pod_name, &secret_name, &payload);
     pods.create(&PostParams::default(), &pod)
@@ -50,13 +54,27 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
     wait_for_pod_ready(&pods, &pod_name).await
 }
 
+fn is_valid_lab_type(lab_type: &str) -> bool {
+    let trimmed = lab_type.trim();
+    !trimmed.is_empty()
+        && trimmed.len() <= 63
+        && trimmed
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
 async fn create_image_pull_secret(
     state: &State,
     secrets: &Api<Secret>,
     secret_name: &str,
     template_path: &str,
 ) -> Result<(), StatusCode> {
-    let token = state.token_provider.token(GCP_SCOPE).await.map_err(|e| {
+    let provider = state.token_provider.as_ref().ok_or_else(|| {
+        error!("Missing token provider in non-local mode");
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+
+    let token = provider.token(GCP_SCOPE).await.map_err(|e| {
         error!("Failed to get GCP token: {:?}", e);
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
