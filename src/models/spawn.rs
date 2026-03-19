@@ -16,9 +16,12 @@ pub struct SpawnResponse {
 
 #[derive(Serialize)]
 pub struct SpawnResponseData {
-    pub pod_name: String,
-    pub webshell_url: String,
+    pub session_id: Uuid,
+    pub container_id: String,
     pub status: String,
+    pub runtime_kind: String,
+    pub webshell_url: Option<String>,
+    pub app_url: Option<String>,
 }
 
 #[derive(Deserialize)]

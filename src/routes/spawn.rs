@@ -15,22 +15,47 @@ pub async fn spawn_lab(
     State(state): State<crate::models::State>,
     Json(payload): Json<SpawnRequest>,
 ) -> Result<Json<SpawnResponse>, StatusCode> {
+    let session_id = payload.session_id;
+    let runtime_kind = if payload.lab_type.contains("web") {
+        "web".to_string()
+    } else {
+        "terminal".to_string()
+    };
     let pod_name = spawn::spawn_lab(state, payload).await?;
 
-    // Get WebSocket base URL from environment variable
     let webshell_base_url =
         std::env::var("WEBSHELL_BASE_URL").unwrap_or_else(|_| "ws://localhost:8085".to_string());
-    let webshell_url = format!(
-        "{}/spawn/webshell/{}",
-        webshell_base_url.trim_end_matches('/'),
-        pod_name
-    );
+    let app_base_url =
+        std::env::var("LAB_APP_BASE_URL").unwrap_or_else(|_| "http://localhost:8085".to_string());
+
+    let (webshell_url, app_url) = if runtime_kind == "web" {
+        (
+            None,
+            Some(format!(
+                "{}/app/{}",
+                app_base_url.trim_end_matches('/'),
+                pod_name
+            )),
+        )
+    } else {
+        (
+            Some(format!(
+                "{}/spawn/webshell/{}",
+                webshell_base_url.trim_end_matches('/'),
+                pod_name
+            )),
+            None,
+        )
+    };
 
     Ok(Json(SpawnResponse {
         success: true,
         data: SpawnResponseData {
-            pod_name: pod_name.clone(),
+            session_id,
+            container_id: pod_name,
+            runtime_kind,
             webshell_url,
+            app_url,
             status: "RUNNING".to_string(),
         },
     }))

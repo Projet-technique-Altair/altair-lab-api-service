@@ -464,20 +464,27 @@ fn test_spawn_request_missing_field() {
 #[test]
 fn test_spawn_response_serialize() {
     use crate::models::{SpawnResponse, SpawnResponseData};
+    use uuid::Uuid;
 
     let response = SpawnResponse {
         success: true,
         data: SpawnResponseData {
-            pod_name: "ctf-session-123".to_string(),
-            webshell_url: "ws://lab-api-service:8080/spawn/webshell/ctf-session-123".to_string(),
+            session_id: Uuid::nil(),
+            container_id: "ctf-session-123".to_string(),
             status: "RUNNING".to_string(),
+            runtime_kind: "terminal".to_string(),
+            webshell_url: Some(
+                "ws://lab-api-service:8080/spawn/webshell/ctf-session-123".to_string(),
+            ),
+            app_url: None,
         },
     };
 
     let json = serde_json::to_string(&response).unwrap();
     assert!(json.contains(r#""success":true"#));
-    assert!(json.contains(r#""pod_name":"ctf-session-123""#));
+    assert!(json.contains(r#""container_id":"ctf-session-123""#));
     assert!(json.contains(r#""status":"RUNNING""#));
+    assert!(json.contains(r#""runtime_kind":"terminal""#));
     assert!(json.contains(r#""webshell_url""#));
 }
 
