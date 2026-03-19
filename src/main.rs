@@ -59,6 +59,7 @@ async fn init_state() -> Result<models::State, String> {
         return Ok(models::State {
             token_provider: None,
             kube_client,
+            http_client: reqwest::Client::new(),
             local_mode: true,
         });
     }
@@ -75,6 +76,7 @@ async fn init_state() -> Result<models::State, String> {
     Ok(models::State {
         token_provider: Some(token_provider),
         kube_client,
+        http_client: reqwest::Client::new(),
         local_mode: false,
     })
 }

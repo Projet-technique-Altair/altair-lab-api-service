@@ -1,14 +1,14 @@
 use std::{collections::BTreeMap, time::Duration};
 
-use axum::http::StatusCode;
+use axum::http::{StatusCode, Uri};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures::StreamExt;
 use k8s_openapi::{
     api::core::v1::{
         Container, EmptyDirVolumeSource, LocalObjectReference, Pod, PodSpec, ResourceRequirements,
-        Secret, Volume, VolumeMount,
+        Secret, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
     },
-    apimachinery::pkg::api::resource::Quantity,
+    apimachinery::pkg::{api::resource::Quantity, util::intstr::IntOrString},
     ByteString,
 };
 use kube::{
@@ -33,9 +33,11 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
     let client = &state.kube_client;
     let pods: Api<Pod> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
     let secrets: Api<Secret> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
+    let services: Api<Service> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
 
     let pod_name = format!("ctf-session-{}", payload.session_id);
     let secret_name = format!("gcr-secret-{}", payload.session_id);
+    let web_service_name = format!("{}-web", pod_name);
 
     if state.local_mode {
         info!("Local mode enabled: skipping GCP image pull secret creation");
@@ -51,7 +53,41 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
-    wait_for_pod_ready(&pods, &pod_name).await
+    let pod_name = wait_for_pod_ready(&pods, &pod_name).await?;
+
+    if payload.lab_delivery == "web" {
+        create_web_service(&services, &web_service_name, &pod_name).await?;
+    }
+
+    Ok(pod_name)
+}
+
+pub async fn build_web_proxy_target(
+    pod_name: &str,
+    path: &str,
+    request_uri: &Uri,
+) -> Result<String, StatusCode> {
+    let web_port = std::env::var("LAB_WEB_TARGET_PORT")
+        .ok()
+        .and_then(|v| v.parse::<u16>().ok())
+        .unwrap_or(3000);
+    let service_name = format!("{}-web", pod_name);
+
+    let query = request_uri
+        .query()
+        .map(|q| format!("?{q}"))
+        .unwrap_or_default();
+
+    let upstream_path = if path.is_empty() {
+        "/".to_string()
+    } else {
+        format!("/{}", path.trim_start_matches('/'))
+    };
+
+    Ok(format!(
+        "http://{}.{}.svc.cluster.local:{}{}{}",
+        service_name, DEFAULT_NAMESPACE, web_port, upstream_path, query
+    ))
 }
 
 fn is_valid_lab_type(lab_type: &str) -> bool {
@@ -116,6 +152,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
         ("app".to_string(), "altair-lab".to_string()),
         ("session_id".to_string(), payload.session_id.to_string()),
         ("lab_type".to_string(), payload.lab_type.clone()),
+        ("runtime_id".to_string(), pod_name.to_string()),
     ]);
 
     let limits = BTreeMap::from([
@@ -164,6 +201,45 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
         }),
         ..Default::default()
     }
+}
+
+async fn create_web_service(
+    services: &Api<Service>,
+    service_name: &str,
+    pod_name: &str,
+) -> Result<(), StatusCode> {
+    let _ = services.delete(service_name, &DeleteParams::default()).await;
+
+    let service = Service {
+        metadata: kube::core::ObjectMeta {
+            name: Some(service_name.to_string()),
+            ..Default::default()
+        },
+        spec: Some(ServiceSpec {
+            selector: Some(BTreeMap::from([(
+                "runtime_id".to_string(),
+                pod_name.to_string(),
+            )])),
+            ports: Some(vec![ServicePort {
+                port: 3000,
+                target_port: Some(IntOrString::Int(3000)),
+                ..Default::default()
+            }]),
+            type_: Some("ClusterIP".to_string()),
+            ..Default::default()
+        }),
+        ..Default::default()
+    };
+
+    services
+        .create(&PostParams::default(), &service)
+        .await
+        .map_err(|e| {
+            error!("Failed to create web service {}: {:?}", service_name, e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    Ok(())
 }
 
 async fn wait_for_pod_ready(pods: &Api<Pod>, pod_name: &str) -> Result<String, StatusCode> {
@@ -258,6 +334,12 @@ fn is_pod_failed(pod: &Pod) -> bool {
 
 pub async fn delete_lab(state: State, pod_name: String) {
     let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
+    let services: Api<Service> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
+    let web_service_name = format!("{}-web", pod_name);
+
+    let _ = services
+        .delete(&web_service_name, &DeleteParams::default())
+        .await;
     pods.delete(&pod_name, &DeleteParams::default())
         .await
         .expect("Failed to delete pod");

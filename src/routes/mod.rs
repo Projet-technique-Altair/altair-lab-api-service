@@ -17,6 +17,8 @@ pub fn init_routes() -> Router<State> {
         .route("/spawn", post(spawn::spawn_lab))
         .route("/spawn/stop", post(spawn::stop_lab))
         .route("/spawn/status/{container_id}", get(spawn::status_lab))
+        .route("/app/{container_id}", get(spawn::proxy_web_root))
+        .route("/app/{container_id}/{*path}", get(spawn::proxy_web_path))
         .route(
             "/spawn/webshell/{pod_name}",
             get(web_shell::lab_terminal_ws),

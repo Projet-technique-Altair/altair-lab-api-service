@@ -1,6 +1,8 @@
 use axum::{
-    extract::{Path, State},
+    body::Body,
+    extract::{OriginalUri, Path, State},
     http::StatusCode,
+    response::Response,
     Json,
 };
 
@@ -79,4 +81,54 @@ pub async fn status_lab(
     let status = spawn::status_lab(state, container_id).await;
 
     Json(StatusResponse { status })
+}
+
+pub async fn proxy_web_root(
+    State(state): State<crate::models::State>,
+    Path(container_id): Path<String>,
+    uri: OriginalUri,
+) -> Result<Response<Body>, StatusCode> {
+    proxy_web_request(state, container_id, String::new(), uri).await
+}
+
+pub async fn proxy_web_path(
+    State(state): State<crate::models::State>,
+    Path((container_id, path)): Path<(String, String)>,
+    uri: OriginalUri,
+) -> Result<Response<Body>, StatusCode> {
+    proxy_web_request(state, container_id, path, uri).await
+}
+
+async fn proxy_web_request(
+    state: crate::models::State,
+    container_id: String,
+    path: String,
+    uri: OriginalUri,
+) -> Result<Response<Body>, StatusCode> {
+    let target_url = spawn::build_web_proxy_target(&container_id, &path, &uri.0).await?;
+    let upstream = state
+        .http_client
+        .get(target_url)
+        .send()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+
+    let status = upstream.status();
+    let content_type = upstream
+        .headers()
+        .get(axum::http::header::CONTENT_TYPE)
+        .cloned();
+    let body = upstream
+        .bytes()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+
+    let mut response = Response::builder().status(status);
+    if let Some(content_type) = content_type {
+        response = response.header(axum::http::header::CONTENT_TYPE, content_type);
+    }
+
+    response
+        .body(Body::from(body))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
 }
