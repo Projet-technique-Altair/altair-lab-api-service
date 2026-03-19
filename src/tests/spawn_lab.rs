@@ -22,6 +22,7 @@ fn create_test_spawn_request() -> SpawnRequest {
         session_id: Uuid::new_v4(),
         lab_type: "guided_terminal".to_string(),
         template_path: "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest".to_string(),
+        lab_delivery: "terminal".to_string(),
     }
 }
 
@@ -420,7 +421,8 @@ fn test_spawn_request_deserialize() {
         r#"{{
             "session_id": "{}",
             "lab_type": "guided_terminal",
-            "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest"
+            "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest",
+            "lab_delivery": "terminal"
         }}"#,
         session_id
     );
@@ -428,6 +430,7 @@ fn test_spawn_request_deserialize() {
     let request: SpawnRequest = serde_json::from_str(&json).unwrap();
     assert_eq!(request.session_id, session_id);
     assert_eq!(request.lab_type, "guided_terminal");
+    assert_eq!(request.lab_delivery.as_deref(), Some("terminal"));
     assert_eq!(
         request.template_path,
         "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest"

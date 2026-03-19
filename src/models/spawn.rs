@@ -6,6 +6,7 @@ pub struct SpawnRequest {
     pub session_id: Uuid,
     pub lab_type: String,      // e.g. "ctf_terminal_guided"
     pub template_path: String, // e.g. "altair/lab-path-hijacking-guided:v1"
+    pub lab_delivery: String,
 }
 
 #[derive(Serialize)]

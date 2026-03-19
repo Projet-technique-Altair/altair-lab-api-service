@@ -16,10 +16,10 @@ pub async fn spawn_lab(
     Json(payload): Json<SpawnRequest>,
 ) -> Result<Json<SpawnResponse>, StatusCode> {
     let session_id = payload.session_id;
-    let runtime_kind = if payload.lab_type.contains("web") {
-        "web".to_string()
-    } else {
-        "terminal".to_string()
+    let runtime_kind = match payload.lab_delivery.as_str() {
+        "web" => "web".to_string(),
+        "terminal" => "terminal".to_string(),
+        _ => return Err(StatusCode::BAD_REQUEST),
     };
     let pod_name = spawn::spawn_lab(state, payload).await?;
 
