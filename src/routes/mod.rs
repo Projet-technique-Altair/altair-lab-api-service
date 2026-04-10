@@ -23,7 +23,7 @@ pub fn init_routes() -> Router<State> {
         router
             .route("/web/{container_id}", any(web::web_proxy_root_request))
             .route(
-                "/web/{container_id}/*path",
+                "/web/{container_id}/{*path}",
                 any(web::web_proxy_path_request),
             )
     } else {
@@ -36,7 +36,10 @@ pub fn init_routes() -> Router<State> {
                 post(web::bootstrap_web_session),
             )
             .route("/web/{container_id}", any(web::runtime_web_request))
-            .route("/web/{container_id}/*path", any(web::runtime_web_request))
+            .route(
+                "/web/{container_id}/{*path}",
+                any(web::runtime_web_request),
+            )
             .route(
                 "/spawn/webshell/{pod_name}",
                 get(web_shell::lab_terminal_ws),
