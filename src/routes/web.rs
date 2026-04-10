@@ -232,10 +232,18 @@ fn build_session_service_target_url(
     let service_suffix =
         std::env::var("WEB_PROXY_SERVICE_SUFFIX").unwrap_or_else(|_| "-web".to_string());
 
-    let mut target_url = format!(
-        "http://{}{service_suffix}.{namespace}.svc.cluster.local",
-        container_id
-    );
+    let mut target_url = if let Some(service_host) =
+        read_session_service_env(container_id, &service_suffix, "SERVICE_HOST")
+    {
+        let service_port = read_session_service_env(container_id, &service_suffix, "SERVICE_PORT")
+            .unwrap_or_else(|| "80".to_string());
+        format!("http://{}:{}", service_host, service_port)
+    } else {
+        format!(
+            "http://{}{service_suffix}.{namespace}.svc.cluster.local",
+            container_id
+        )
+    };
 
     let stripped_path = match path {
         Some(value) if !value.is_empty() => format!("/{}", value.trim_start_matches('/')),
@@ -249,6 +257,26 @@ fn build_session_service_target_url(
     }
 
     Ok(target_url)
+}
+
+fn read_session_service_env(
+    container_id: &str,
+    service_suffix: &str,
+    suffix: &str,
+) -> Option<String> {
+    let service_name = format!("{}{}", container_id, service_suffix);
+    let env_key = service_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    std::env::var(format!("{}_{}", env_key, suffix)).ok()
 }
 
 async fn proxy_request(
@@ -309,6 +337,16 @@ async fn proxy_request(
             );
             StatusCode::BAD_GATEWAY
         })?;
+
+    if !status.is_success() {
+        let body_preview = String::from_utf8_lossy(&body);
+        error!(
+            "LAB-WEB upstream returned {} for {} with body preview: {}",
+            status,
+            target_url,
+            body_preview.chars().take(200).collect::<String>()
+        );
+    }
     let mut response = Response::new(Body::from(body));
     *response.status_mut() = status;
 
