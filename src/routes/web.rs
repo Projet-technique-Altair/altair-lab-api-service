@@ -33,6 +33,12 @@ struct OpenWebSessionResponse {
     redirect_url: String,
 }
 
+#[derive(Serialize)]
+struct OpenWebSessionApiResponse {
+    success: bool,
+    data: OpenWebSessionResponse,
+}
+
 #[derive(Serialize, Deserialize)]
 struct LabWebCookieClaims {
     kind: String,
@@ -91,12 +97,15 @@ pub async fn open_web_session(
     let app_base_url =
         std::env::var("LAB_APP_BASE_URL").unwrap_or_else(|_| "http://localhost:8085".to_string());
 
-    let payload = serde_json::to_vec(&OpenWebSessionResponse {
-        redirect_url: format!(
-            "{}/web/{}",
-            app_base_url.trim_end_matches('/'),
-            runtime.container_id
-        ),
+    let payload = serde_json::to_vec(&OpenWebSessionApiResponse {
+        success: true,
+        data: OpenWebSessionResponse {
+            redirect_url: format!(
+                "{}/web/{}",
+                app_base_url.trim_end_matches('/'),
+                runtime.container_id
+            ),
+        },
     })
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
