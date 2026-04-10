@@ -23,6 +23,8 @@ pub struct SpawnResponseData {
     pub status: String,
     pub runtime_kind: String,
     pub webshell_url: Option<String>,
+    // app_url stays in the backend contract temporarily while LAB-WEB consumers
+    // migrate to the bootstrap-tab flow; the frontend no longer relies on it.
     pub app_url: Option<String>,
 }
 
