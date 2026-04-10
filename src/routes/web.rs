@@ -7,6 +7,7 @@ use axum::{
 };
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde::{Deserialize, Serialize};
+use tracing::error;
 use uuid::Uuid;
 
 use crate::models::State as AppState;
@@ -262,7 +263,10 @@ async fn proxy_request(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
         .build()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            error!("failed to build LAB-WEB proxy client: {}", error);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
     let method = reqwest::Method::from_bytes(request.method().as_str().as_bytes())
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
@@ -276,31 +280,45 @@ async fn proxy_request(
 
     let body_bytes = to_bytes(request.into_body(), usize::MAX)
         .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|error| {
+            error!("failed to read LAB-WEB request body for {}: {}", target_url, error);
+            StatusCode::BAD_GATEWAY
+        })?;
 
     let mut outbound = client.request(method, &target_url).body(body_bytes);
     for (name, value) in forwarded_headers {
         outbound = outbound.header(name, value);
     }
 
-    let upstream = outbound.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let upstream = outbound.send().await.map_err(|error| {
+        error!(
+            "LAB-WEB upstream request failed for {}: {}",
+            target_url, error
+        );
+        StatusCode::BAD_GATEWAY
+    })?;
     let status = upstream.status();
     let response_headers = upstream.headers().clone();
     let body = upstream
         .bytes()
         .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+        .map_err(|error| {
+            error!(
+                "failed to read LAB-WEB upstream response body for {}: {}",
+                target_url, error
+            );
+            StatusCode::BAD_GATEWAY
+        })?;
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = status;
 
-    let mut response = Response::builder().status(status);
     for (name, value) in &response_headers {
         if !is_hop_by_hop_header(name) {
-            response = response.header(name, value);
+            response.headers_mut().append(name, value.clone());
         }
     }
 
-    response
-        .body(Body::from(body))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    Ok(response)
 }
 
 fn should_forward_request_header(name: &HeaderName) -> bool {
