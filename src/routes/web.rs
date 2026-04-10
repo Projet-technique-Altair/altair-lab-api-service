@@ -302,12 +302,13 @@ async fn proxy_request(
 
     let method = reqwest::Method::from_bytes(request.method().as_str().as_bytes())
         .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let cookie_name =
+        std::env::var("LAB_WEB_COOKIE_NAME").unwrap_or_else(|_| DEFAULT_COOKIE_NAME.to_string());
 
     let forwarded_headers: Vec<(HeaderName, axum::http::HeaderValue)> = request
         .headers()
         .iter()
-        .filter(|(name, _)| should_forward_request_header(name))
-        .map(|(name, value)| (name.clone(), value.clone()))
+        .filter_map(|(name, value)| filter_request_header(name, value, &cookie_name))
         .collect();
 
     let body_bytes = to_bytes(request.into_body(), usize::MAX)
@@ -363,15 +364,38 @@ async fn proxy_request(
     Ok(response)
 }
 
-fn should_forward_request_header(name: &HeaderName) -> bool {
-    !is_hop_by_hop_header(name) && !is_platform_private_header(name)
+fn filter_request_header(
+    name: &HeaderName,
+    value: &axum::http::HeaderValue,
+    lab_web_cookie_name: &str,
+) -> Option<(HeaderName, axum::http::HeaderValue)> {
+    if is_hop_by_hop_header(name) {
+        return None;
+    }
+
+    if name.as_str().eq_ignore_ascii_case("cookie") {
+        let raw = value.to_str().ok()?;
+        let filtered = strip_cookie_by_name(raw, lab_web_cookie_name);
+
+        if filtered.is_empty() {
+            return None;
+        }
+
+        let rewritten = axum::http::HeaderValue::from_str(&filtered).ok()?;
+        return Some((name.clone(), rewritten));
+    }
+
+    if is_platform_private_header(name) {
+        return None;
+    }
+
+    Some((name.clone(), value.clone()))
 }
 
 fn is_platform_private_header(name: &HeaderName) -> bool {
     let header = name.as_str().to_ascii_lowercase();
 
     header == "authorization"
-        || header == "cookie"
         || header == "origin"
         || header == "referer"
         || header.starts_with("x-altair-")
@@ -393,13 +417,36 @@ fn is_hop_by_hop_header(name: &HeaderName) -> bool {
     )
 }
 
+fn strip_cookie_by_name(cookie_header: &str, cookie_name: &str) -> String {
+    cookie_header
+        .split(';')
+        .filter_map(|pair| {
+            let trimmed = pair.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let mut parts = trimmed.splitn(2, '=');
+            let name = parts.next()?.trim();
+            let value = parts.next()?.trim();
+
+            if name == cookie_name || value.is_empty() {
+                None
+            } else {
+                Some(format!("{name}={value}"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
-        build_open_web_redirect_url, build_runtime_proxy_target_url,
-        build_session_service_target_url,
+        build_open_web_redirect_url, build_runtime_proxy_target_url, build_session_service_target_url,
+        filter_request_header, strip_cookie_by_name,
     };
-    use axum::http::Uri;
+    use axum::http::{HeaderName, HeaderValue, Uri};
 
     #[test]
     fn open_web_redirect_url_keeps_trailing_slash() {
@@ -448,6 +495,33 @@ mod tests {
         assert_eq!(
             target,
             "http://ctf-session-123-web.labs-web.svc.cluster.local/assets/app.js?lang=en"
+        );
+    }
+
+    #[test]
+    fn strip_cookie_by_name_keeps_runtime_cookie_for_lab_backend() {
+        let filtered = strip_cookie_by_name(
+            "altair_web_session=token; unlocked=1; theme=dark",
+            "altair_web_session",
+        );
+
+        assert_eq!(filtered, "unlocked=1; theme=dark");
+    }
+
+    #[test]
+    fn filter_request_header_rewrites_cookie_header_when_runtime_cookie_exists() {
+        let filtered = filter_request_header(
+            &HeaderName::from_static("cookie"),
+            &HeaderValue::from_static("altair_web_session=token; unlocked=1"),
+            "altair_web_session",
+        );
+
+        assert_eq!(
+            filtered,
+            Some((
+                HeaderName::from_static("cookie"),
+                HeaderValue::from_static("unlocked=1")
+            ))
         );
     }
 }
