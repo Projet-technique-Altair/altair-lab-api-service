@@ -29,10 +29,11 @@ pub async fn spawn_lab(
         std::env::var("LAB_APP_BASE_URL").unwrap_or_else(|_| "http://localhost:8085".to_string());
 
     let (webshell_url, app_url) = if runtime_kind == "web" {
+        // LAB-WEB exposes /web/{container_id}; app_url must match that public route.
         (
             None,
             Some(format!(
-                "{}/app/{}",
+                "{}/web/{}",
                 app_base_url.trim_end_matches('/'),
                 pod_name
             )),

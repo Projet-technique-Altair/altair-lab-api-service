@@ -3,15 +3,20 @@ use std::collections::BTreeMap;
 use k8s_openapi::api::core::v1::{
     Container, ContainerState, ContainerStateRunning, ContainerStateTerminated,
     ContainerStateWaiting, ContainerStatus, EmptyDirVolumeSource, LocalObjectReference, Pod,
-    PodSpec, PodStatus, ResourceRequirements, Volume, VolumeMount,
+    PodSpec, PodStatus, ResourceRequirements, Service, ServicePort, ServiceSpec, Volume,
+    VolumeMount,
 };
 use k8s_openapi::apimachinery::pkg::api::resource::Quantity;
+use k8s_openapi::apimachinery::pkg::util::intstr::IntOrString;
 use uuid::Uuid;
 
 use crate::models::SpawnRequest;
 
 // Constants matching the service implementation
 const POD_DEADLINE_SECS: i64 = 7200;
+const DEFAULT_NAMESPACE: &str = "default";
+const WEB_NAMESPACE: &str = "labs-web";
+const WEB_SERVICE_PORT: i32 = 80;
 
 // ============================================================================
 // Helper functions for creating test data
@@ -23,6 +28,7 @@ fn create_test_spawn_request() -> SpawnRequest {
         lab_type: "guided_terminal".to_string(),
         template_path: "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest".to_string(),
         lab_delivery: "terminal".to_string(),
+        app_port: None,
     }
 }
 
@@ -92,6 +98,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
         ("app".to_string(), "altair-lab".to_string()),
         ("session_id".to_string(), payload.session_id.to_string()),
         ("lab_type".to_string(), payload.lab_type.clone()),
+        ("runtime_kind".to_string(), payload.lab_delivery.clone()),
     ]);
 
     let limits = BTreeMap::from([
@@ -142,6 +149,55 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
     }
 }
 
+fn is_valid_app_port(app_port: i32) -> bool {
+    (1..=65535).contains(&app_port)
+}
+
+fn is_valid_spawn_payload(payload: &SpawnRequest) -> bool {
+    match payload.lab_delivery.as_str() {
+        "web" => payload.app_port.is_some_and(is_valid_app_port),
+        "terminal" => payload.app_port.is_none() || payload.app_port.is_some_and(is_valid_app_port),
+        _ => false,
+    }
+}
+
+fn namespace_for_delivery(lab_delivery: &str) -> &'static str {
+    if lab_delivery == "web" {
+        WEB_NAMESPACE
+    } else {
+        DEFAULT_NAMESPACE
+    }
+}
+
+fn build_web_service_name(pod_name: &str) -> String {
+    format!("{pod_name}-web")
+}
+
+fn build_web_service(pod_name: &str, payload: &SpawnRequest) -> Service {
+    Service {
+        metadata: kube::core::ObjectMeta {
+            name: Some(build_web_service_name(pod_name)),
+            ..Default::default()
+        },
+        spec: Some(ServiceSpec {
+            type_: Some("ClusterIP".to_string()),
+            selector: Some(BTreeMap::from([
+                ("app".to_string(), "altair-lab".to_string()),
+                ("session_id".to_string(), payload.session_id.to_string()),
+                ("runtime_kind".to_string(), "web".to_string()),
+            ])),
+            ports: Some(vec![ServicePort {
+                port: WEB_SERVICE_PORT,
+                target_port: payload.app_port.map(IntOrString::Int),
+                protocol: Some("TCP".to_string()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
 #[test]
 fn test_build_pod_metadata() {
     let payload = create_test_spawn_request();
@@ -159,6 +215,7 @@ fn test_build_pod_metadata() {
         labels.get("session_id"),
         Some(&payload.session_id.to_string())
     );
+    assert_eq!(labels.get("runtime_kind"), Some(&"terminal".to_string()));
 }
 
 #[test]
@@ -235,6 +292,51 @@ fn test_build_pod_restart_policy() {
     let spec = pod.spec.unwrap();
     assert_eq!(spec.restart_policy, Some("Never".to_string()));
     assert_eq!(spec.active_deadline_seconds, Some(POD_DEADLINE_SECS));
+}
+
+#[test]
+fn test_build_web_service_configuration() {
+    let mut payload = create_test_spawn_request();
+    payload.lab_delivery = "web".to_string();
+    payload.app_port = Some(3000);
+
+    let service = build_web_service("ctf-session-123", &payload);
+    assert_eq!(service.metadata.name, Some("ctf-session-123-web".to_string()));
+
+    let spec = service.spec.unwrap();
+    assert_eq!(spec.type_, Some("ClusterIP".to_string()));
+    assert_eq!(
+        spec.selector.unwrap().get("runtime_kind"),
+        Some(&"web".to_string())
+    );
+
+    let port = &spec.ports.unwrap()[0];
+    assert_eq!(port.port, WEB_SERVICE_PORT);
+    assert_eq!(port.target_port, Some(IntOrString::Int(3000)));
+}
+
+#[test]
+fn test_namespace_for_delivery() {
+    assert_eq!(namespace_for_delivery("terminal"), DEFAULT_NAMESPACE);
+    assert_eq!(namespace_for_delivery("web"), WEB_NAMESPACE);
+}
+
+#[test]
+fn test_is_valid_spawn_payload_requires_port_for_web() {
+    let mut payload = create_test_spawn_request();
+    payload.lab_delivery = "web".to_string();
+    payload.app_port = None;
+
+    assert!(!is_valid_spawn_payload(&payload));
+}
+
+#[test]
+fn test_is_valid_spawn_payload_accepts_web_with_valid_port() {
+    let mut payload = create_test_spawn_request();
+    payload.lab_delivery = "web".to_string();
+    payload.app_port = Some(8080);
+
+    assert!(is_valid_spawn_payload(&payload));
 }
 
 // ============================================================================
@@ -422,7 +524,8 @@ fn test_spawn_request_deserialize() {
             "session_id": "{}",
             "lab_type": "guided_terminal",
             "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest",
-            "lab_delivery": "terminal"
+            "lab_delivery": "terminal",
+            "app_port": null
         }}"#,
         session_id
     );
@@ -430,11 +533,32 @@ fn test_spawn_request_deserialize() {
     let request: SpawnRequest = serde_json::from_str(&json).unwrap();
     assert_eq!(request.session_id, session_id);
     assert_eq!(request.lab_type, "guided_terminal");
-    assert_eq!(request.lab_delivery.as_deref(), Some("terminal"));
+    assert_eq!(request.lab_delivery, "terminal");
+    assert_eq!(request.app_port, None);
     assert_eq!(
         request.template_path,
         "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest"
     );
+}
+
+#[test]
+fn test_spawn_request_deserialize_web_with_app_port() {
+    let session_id = Uuid::new_v4();
+    let json = format!(
+        r#"{{
+            "session_id": "{}",
+            "lab_type": "guided_web",
+            "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest",
+            "lab_delivery": "web",
+            "app_port": 3000
+        }}"#,
+        session_id
+    );
+
+    let request: SpawnRequest = serde_json::from_str(&json).unwrap();
+    assert_eq!(request.session_id, session_id);
+    assert_eq!(request.lab_delivery, "web");
+    assert_eq!(request.app_port, Some(3000));
 }
 
 #[test]

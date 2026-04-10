@@ -6,9 +6,10 @@ use futures::StreamExt;
 use k8s_openapi::{
     api::core::v1::{
         Container, EmptyDirVolumeSource, LocalObjectReference, Pod, PodSpec, ResourceRequirements,
-        Secret, Volume, VolumeMount,
+        Secret, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
     },
     apimachinery::pkg::api::resource::Quantity,
+    apimachinery::pkg::util::intstr::IntOrString,
     ByteString,
 };
 use kube::{
@@ -22,17 +23,24 @@ use crate::models::{SpawnRequest, State};
 
 const GCP_SCOPE: &[&str] = &["https://www.googleapis.com/auth/cloud-platform"];
 const DEFAULT_NAMESPACE: &str = "default";
+const WEB_NAMESPACE: &str = "labs-web";
 const POD_TIMEOUT_SECS: u64 = 30;
 const POD_DEADLINE_SECS: i64 = 7200;
+const WEB_SERVICE_PORT: i32 = 80;
 
 pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, StatusCode> {
     if !is_valid_lab_type(&payload.lab_type) {
         return Err(StatusCode::BAD_REQUEST);
     }
+    if !is_valid_spawn_payload(&payload) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
 
     let client = &state.kube_client;
-    let pods: Api<Pod> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), DEFAULT_NAMESPACE);
+    let namespace = namespace_for_delivery(&payload.lab_delivery);
+    let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
+    let services: Api<Service> = Api::namespaced(client.clone(), namespace);
 
     let pod_name = format!("ctf-session-{}", payload.session_id);
     let secret_name = format!("gcr-secret-{}", payload.session_id);
@@ -51,6 +59,12 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
+    // Web labs need a stable in-cluster Service before the future web proxy can
+    // forward requests to the Pod without depending on an ephemeral Pod IP.
+    if payload.lab_delivery == "web" {
+        create_web_session_service(&services, &pod_name, &payload).await?;
+    }
+
     wait_for_pod_ready(&pods, &pod_name).await
 }
 
@@ -61,6 +75,32 @@ fn is_valid_lab_type(lab_type: &str) -> bool {
         && trimmed
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.')
+}
+
+fn is_valid_spawn_payload(payload: &SpawnRequest) -> bool {
+    match payload.lab_delivery.as_str() {
+        // Web sessions need an explicit container port so lab-api can create the
+        // matching Kubernetes Service with a deterministic targetPort.
+        "web" => payload.app_port.is_some_and(is_valid_app_port),
+        "terminal" => payload.app_port.is_none() || payload.app_port.is_some_and(is_valid_app_port),
+        _ => false,
+    }
+}
+
+fn is_valid_app_port(app_port: i32) -> bool {
+    (1..=65535).contains(&app_port)
+}
+
+fn namespace_for_delivery(lab_delivery: &str) -> &'static str {
+    if lab_delivery == "web" {
+        WEB_NAMESPACE
+    } else {
+        DEFAULT_NAMESPACE
+    }
+}
+
+fn build_web_service_name(pod_name: &str) -> String {
+    format!("{pod_name}-web")
 }
 
 async fn create_image_pull_secret(
@@ -116,6 +156,8 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
         ("app".to_string(), "altair-lab".to_string()),
         ("session_id".to_string(), payload.session_id.to_string()),
         ("lab_type".to_string(), payload.lab_type.clone()),
+        // This keeps the future web session Service scoped to web runtimes only.
+        ("runtime_kind".to_string(), payload.lab_delivery.clone()),
     ]);
 
     let limits = BTreeMap::from([
@@ -164,6 +206,53 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
         }),
         ..Default::default()
     }
+}
+
+fn build_web_service(pod_name: &str, payload: &SpawnRequest) -> Service {
+    let service_name = build_web_service_name(pod_name);
+
+    Service {
+        metadata: kube::core::ObjectMeta {
+            name: Some(service_name),
+            ..Default::default()
+        },
+        spec: Some(ServiceSpec {
+            type_: Some("ClusterIP".to_string()),
+            selector: Some(BTreeMap::from([
+                ("app".to_string(), "altair-lab".to_string()),
+                ("session_id".to_string(), payload.session_id.to_string()),
+                ("runtime_kind".to_string(), "web".to_string()),
+            ])),
+            ports: Some(vec![ServicePort {
+                port: WEB_SERVICE_PORT,
+                target_port: payload.app_port.map(IntOrString::Int),
+                protocol: Some("TCP".to_string()),
+                ..Default::default()
+            }]),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+async fn create_web_session_service(
+    services: &Api<Service>,
+    pod_name: &str,
+    payload: &SpawnRequest,
+) -> Result<(), StatusCode> {
+    let service_name = build_web_service_name(pod_name);
+    let service = build_web_service(pod_name, payload);
+
+    let _ = services.delete(&service_name, &DeleteParams::default()).await;
+    services
+        .create(&PostParams::default(), &service)
+        .await
+        .map_err(|e| {
+            error!("Failed to create web session service: {:?}", e);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
+
+    Ok(())
 }
 
 async fn wait_for_pod_ready(pods: &Api<Pod>, pod_name: &str) -> Result<String, StatusCode> {
@@ -257,18 +346,59 @@ fn is_pod_failed(pod: &Pod) -> bool {
 }
 
 pub async fn delete_lab(state: State, pod_name: String) {
-    let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
-    pods.delete(&pod_name, &DeleteParams::default())
-        .await
-        .expect("Failed to delete pod");
+    // Stop requests only carry the container_id, so deletion checks both runtime
+    // namespaces and cleans up the web Service when the runtime lived in labs-web.
+    let default_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
+    let web_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), WEB_NAMESPACE);
+    let web_services: Api<Service> = Api::namespaced(state.kube_client.clone(), WEB_NAMESPACE);
+
+    if !delete_pod_if_exists(&default_pods, &pod_name).await {
+        let deleted_from_web = delete_pod_if_exists(&web_pods, &pod_name).await;
+        if deleted_from_web {
+            let service_name = build_web_service_name(&pod_name);
+            let _ = web_services
+                .delete(&service_name, &DeleteParams::default())
+                .await;
+        }
+    }
 }
 
 pub async fn status_lab(state: State, pod_name: String) -> String {
-    let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
-    pods.get(&pod_name)
+    // Status checks follow the same namespace split as stop: terminal in default,
+    // web in labs-web.
+    let default_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
+    let web_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), WEB_NAMESPACE);
+
+    if let Some(status) = get_pod_phase(&default_pods, &pod_name).await {
+        return status;
+    }
+
+    get_pod_phase(&web_pods, &pod_name)
         .await
-        .expect("Failed to get pod")
-        .status
-        .and_then(|s| s.phase)
         .unwrap_or_else(|| "Unknown".to_string())
+}
+
+async fn delete_pod_if_exists(pods: &Api<Pod>, pod_name: &str) -> bool {
+    match pods.delete(pod_name, &DeleteParams::default()).await {
+        Ok(_) => true,
+        Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
+        Err(error) => {
+            error!("Failed to delete pod {}: {:?}", pod_name, error);
+            false
+        }
+    }
+}
+
+async fn get_pod_phase(pods: &Api<Pod>, pod_name: &str) -> Option<String> {
+    match pods.get(pod_name).await {
+        Ok(pod) => pod
+            .status
+            .and_then(|s| s.phase)
+            .or_else(|| Some("Unknown".to_string())),
+        Err(kube::Error::Api(api_error)) if api_error.code == 404 => None,
+        Err(error) => {
+            error!("Failed to get pod {}: {:?}", pod_name, error);
+            Some("Unknown".to_string())
+        }
+    }
 }
