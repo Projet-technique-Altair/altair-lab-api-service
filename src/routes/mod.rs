@@ -1,4 +1,5 @@
 mod spawn;
+mod web;
 mod web_shell;
 
 // Public for testing
@@ -12,8 +13,18 @@ use axum::{
 use crate::models::State;
 
 pub fn init_routes() -> Router<State> {
-    Router::new()
-        .route("/health", get(health::health))
+    let role = std::env::var("LAB_API_ROLE").unwrap_or_else(|_| "runtime-api".to_string());
+
+    let router = Router::new().route("/health", get(health::health));
+
+    // The same binary serves two roles. runtime-api keeps the existing spawn/webshell
+    // endpoints, while web-proxy exposes only the internal /web routes.
+    if role == "web-proxy" {
+        router
+            .route("/web/{container_id}", get(web::web_proxy_root_request))
+            .route("/web/{container_id}/*path", get(web::web_proxy_path_request))
+    } else {
+        router
         .route("/spawn", post(spawn::spawn_lab))
         .route("/spawn/stop", post(spawn::stop_lab))
         .route("/spawn/status/{container_id}", get(spawn::status_lab))
@@ -21,4 +32,5 @@ pub fn init_routes() -> Router<State> {
             "/spawn/webshell/{pod_name}",
             get(web_shell::lab_terminal_ws),
         )
+    }
 }

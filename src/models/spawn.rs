@@ -6,6 +6,8 @@ pub struct SpawnRequest {
     pub session_id: Uuid,
     pub lab_type: String,      // e.g. "ctf_terminal_guided"
     pub template_path: String, // e.g. "altair/lab-path-hijacking-guided:v1"
+    pub lab_delivery: String,
+    pub app_port: Option<i32>,
 }
 
 #[derive(Serialize)]
@@ -16,9 +18,12 @@ pub struct SpawnResponse {
 
 #[derive(Serialize)]
 pub struct SpawnResponseData {
-    pub pod_name: String,
-    pub webshell_url: String,
+    pub session_id: Uuid,
+    pub container_id: String,
     pub status: String,
+    pub runtime_kind: String,
+    pub webshell_url: Option<String>,
+    pub app_url: Option<String>,
 }
 
 #[derive(Deserialize)]
