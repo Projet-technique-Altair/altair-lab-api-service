@@ -30,9 +30,7 @@ impl LabApiRole {
             Some(other) => Err(format!(
                 "Unsupported LAB_API_ROLE '{other}'. Expected 'runtime-api' or 'web-proxy'."
             )),
-            None => Err(
-                "LAB_API_ROLE must be set to 'runtime-api' or 'web-proxy'.".to_string(),
-            ),
+            None => Err("LAB_API_ROLE must be set to 'runtime-api' or 'web-proxy'.".to_string()),
         }
     }
 
@@ -60,12 +58,19 @@ fn runtime_api_routes() -> Router<State> {
         .route("/spawn/status/{container_id}", get(spawn::status_lab))
         // open-session creates the browser-facing LAB-WEB cookie before the learner
         // is redirected to the actual /web/{container_id} runtime route.
-        .route("/web/open-session/{session_id}", post(web::open_web_session))
+        .route(
+            "/web/open-session/{session_id}",
+            post(web::open_web_session),
+        )
         // /web/{container_id} then carries the normal HTTP traffic for the running
         // lab application after the bootstrap step has completed.
         .route("/web/{container_id}", any(web::runtime_web_request))
+        .route("/web/{container_id}/", any(web::runtime_web_request))
         .route("/web/{container_id}/{*path}", any(web::runtime_web_request))
-        .route("/spawn/webshell/{pod_name}", get(web_shell::lab_terminal_ws))
+        .route(
+            "/spawn/webshell/{pod_name}",
+            get(web_shell::lab_terminal_ws),
+        )
 }
 
 fn web_proxy_routes() -> Router<State> {
@@ -73,7 +78,11 @@ fn web_proxy_routes() -> Router<State> {
         // The web-proxy role receives already-authenticated LAB-WEB traffic from
         // runtime-api and only forwards it to the per-session Kubernetes Service.
         .route("/web/{container_id}", any(web::web_proxy_root_request))
-        .route("/web/{container_id}/{*path}", any(web::web_proxy_path_request))
+        .route("/web/{container_id}/", any(web::web_proxy_root_request))
+        .route(
+            "/web/{container_id}/{*path}",
+            any(web::web_proxy_path_request),
+        )
 }
 
 #[cfg(test)]

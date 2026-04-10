@@ -101,11 +101,7 @@ pub async fn open_web_session(
     let payload = serde_json::to_vec(&OpenWebSessionApiResponse {
         success: true,
         data: OpenWebSessionResponse {
-            redirect_url: format!(
-                "{}/web/{}",
-                app_base_url.trim_end_matches('/'),
-                runtime.container_id
-            ),
+            redirect_url: build_open_web_redirect_url(&app_base_url, &runtime.container_id),
         },
     })
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
@@ -223,6 +219,14 @@ fn build_runtime_proxy_target_url(base_url: &str, original_uri: &Uri) -> Result<
     Ok(target_url)
 }
 
+fn build_open_web_redirect_url(app_base_url: &str, container_id: &str) -> String {
+    format!(
+        "{}/web/{}/",
+        app_base_url.trim_end_matches('/'),
+        container_id
+    )
+}
+
 fn build_session_service_target_url(
     container_id: &str,
     path: Option<&str>,
@@ -309,7 +313,10 @@ async fn proxy_request(
     let body_bytes = to_bytes(request.into_body(), usize::MAX)
         .await
         .map_err(|error| {
-            error!("failed to read LAB-WEB request body for {}: {}", target_url, error);
+            error!(
+                "failed to read LAB-WEB request body for {}: {}",
+                target_url, error
+            );
             StatusCode::BAD_GATEWAY
         })?;
 
@@ -327,16 +334,13 @@ async fn proxy_request(
     })?;
     let status = upstream.status();
     let response_headers = upstream.headers().clone();
-    let body = upstream
-        .bytes()
-        .await
-        .map_err(|error| {
-            error!(
-                "failed to read LAB-WEB upstream response body for {}: {}",
-                target_url, error
-            );
-            StatusCode::BAD_GATEWAY
-        })?;
+    let body = upstream.bytes().await.map_err(|error| {
+        error!(
+            "failed to read LAB-WEB upstream response body for {}: {}",
+            target_url, error
+        );
+        StatusCode::BAD_GATEWAY
+    })?;
 
     if !status.is_success() {
         let body_preview = String::from_utf8_lossy(&body);
@@ -391,8 +395,22 @@ fn is_hop_by_hop_header(name: &HeaderName) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{build_runtime_proxy_target_url, build_session_service_target_url};
+    use super::{
+        build_open_web_redirect_url, build_runtime_proxy_target_url,
+        build_session_service_target_url,
+    };
     use axum::http::Uri;
+
+    #[test]
+    fn open_web_redirect_url_keeps_trailing_slash() {
+        let target =
+            build_open_web_redirect_url("https://api.altair-platform.space", "ctf-session-123");
+
+        assert_eq!(
+            target,
+            "https://api.altair-platform.space/web/ctf-session-123/"
+        );
+    }
 
     #[test]
     fn runtime_proxy_target_keeps_path_and_query() {
