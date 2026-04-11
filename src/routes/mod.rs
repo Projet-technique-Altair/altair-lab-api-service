@@ -71,7 +71,6 @@ fn runtime_api_routes() -> Router<State> {
             "/spawn/webshell/{pod_name}",
             get(web_shell::lab_terminal_ws),
         )
-    }
 }
 
 fn web_proxy_routes() -> Router<State> {
