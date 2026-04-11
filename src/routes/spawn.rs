@@ -29,7 +29,8 @@ pub async fn spawn_lab(
         std::env::var("LAB_APP_BASE_URL").unwrap_or_else(|_| "http://localhost:8085".to_string());
 
     let (webshell_url, app_url) = if runtime_kind == "web" {
-        // LAB-WEB exposes /web/{container_id}; app_url must match that public route.
+        // LAB-WEB still publishes app_url for backend compatibility, even though
+        // the learner flow now opens the runtime through the bootstrap tab.
         (
             None,
             Some(format!(

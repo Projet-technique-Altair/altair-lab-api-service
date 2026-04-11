@@ -21,6 +21,14 @@ async fn main() {
         .with_env_filter(EnvFilter::from_default_env())
         .init();
 
+    let role = match routes::LabApiRole::from_env() {
+        Ok(role) => role,
+        Err(e) => {
+            error!("Invalid LAB_API_ROLE: {}", e);
+            std::process::exit(1);
+        }
+    };
+
     let state = match init_state().await {
         Ok(s) => s,
         Err(e) => {
@@ -34,7 +42,7 @@ async fn main() {
         .allow_methods(Any)
         .allow_headers(Any);
 
-    let app = routes::init_routes().layer(cors).with_state(state);
+    let app = routes::init_routes(role).layer(cors).with_state(state);
 
     let port = std::env::var("PORT").unwrap_or_else(|_| DEFAULT_PORT.to_string());
     let addr = format!("0.0.0.0:{}", port);
@@ -43,7 +51,7 @@ async fn main() {
         .await
         .expect("Failed to bind to address");
 
-    info!("Server started on {}", addr);
+    info!("Server started on {} with role {}", addr, role.as_str());
     axum::serve(listener, app).await.expect("Server error");
 }
 

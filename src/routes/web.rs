@@ -1,53 +1,233 @@
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use axum::{
-    body::Body,
-    extract::{OriginalUri, Path, State},
-    http::{HeaderMap, HeaderName, StatusCode, Uri},
-    response::Response,
+    body::{to_bytes, Body},
+    extract::{Path, State},
+    http::{HeaderMap, HeaderName, Request, Response, StatusCode, Uri},
 };
+use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use reqwest::Url;
+use serde::{Deserialize, Serialize};
+use tracing::error;
+use uuid::Uuid;
 
 use crate::models::State as AppState;
 
-pub async fn runtime_web_request(
+const HDR_USER_ID: &str = "x-altair-user-id";
+const DEFAULT_COOKIE_NAME: &str = "altair_web_session";
+const DEFAULT_COOKIE_TTL_SECONDS: u64 = 3600;
+
+#[derive(Deserialize)]
+struct SessionsApiResponse<T> {
+    data: T,
+}
+
+#[derive(Deserialize)]
+struct WebRuntimeLookup {
+    user_id: Uuid,
+    runtime_kind: String,
+    container_id: String,
+    status: String,
+}
+
+#[derive(Serialize)]
+struct OpenWebSessionResponse {
+    redirect_url: String,
+}
+
+#[derive(Serialize)]
+struct OpenWebSessionApiResponse {
+    success: bool,
+    data: OpenWebSessionResponse,
+}
+
+#[derive(Serialize, Deserialize)]
+struct LabWebCookieClaims {
+    kind: String,
+    cid: String,
+    uid: String,
+    exp: usize,
+}
+
+pub async fn open_web_session(
     State(_state): State<AppState>,
-    OriginalUri(original_uri): OriginalUri,
+    Path(session_id): Path<Uuid>,
     headers: HeaderMap,
 ) -> Result<Response<Body>, StatusCode> {
-    let proxy_base_url = std::env::var("LAB_WEB_PROXY_BASE_URL").map_err(|_| {
-        // The public runtime-api stays dumb here: it only forwards to the
-        // internal web-proxy base URL that infra already provisioned.
-        StatusCode::INTERNAL_SERVER_ERROR
-    })?;
+    // open-session exists only to prepare the browser-facing LAB-WEB cookie
+    // before the learner is redirected to the real /web/{container_id} route.
+    let user_id = extract_user_id(&headers)?;
+    let runtime = fetch_web_runtime(session_id).await?;
 
+    if runtime.user_id != user_id {
+        return Err(StatusCode::FORBIDDEN);
+    }
+
+    if runtime.runtime_kind != "web" {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+
+    if runtime.status != "running" {
+        return Err(StatusCode::CONFLICT);
+    }
+
+    let cookie_name =
+        std::env::var("LAB_WEB_COOKIE_NAME").unwrap_or_else(|_| DEFAULT_COOKIE_NAME.to_string());
+    let ttl_seconds = std::env::var("LAB_WEB_COOKIE_TTL_SECONDS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .unwrap_or(DEFAULT_COOKIE_TTL_SECONDS);
+    let signing_secret = std::env::var("LAB_WEB_COOKIE_SIGNING_SECRET")
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let claims = LabWebCookieClaims {
+        kind: "lab_web".to_string(),
+        cid: runtime.container_id.clone(),
+        uid: runtime.user_id.to_string(),
+        exp: current_unix_timestamp(ttl_seconds)?,
+    };
+
+    let token = encode(
+        &Header::new(Algorithm::HS256),
+        &claims,
+        &EncodingKey::from_secret(signing_secret.as_bytes()),
+    )
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let cookie_value = build_lab_web_cookie(&cookie_name, &token, ttl_seconds);
+    let app_base_url =
+        std::env::var("LAB_APP_BASE_URL").unwrap_or_else(|_| "http://localhost:8085".to_string());
+
+    let payload = serde_json::to_vec(&OpenWebSessionApiResponse {
+        success: true,
+        data: OpenWebSessionResponse {
+            redirect_url: build_open_web_redirect_url(&app_base_url, &runtime.container_id),
+        },
+    })
+    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "application/json")
+        .header("set-cookie", cookie_value)
+        .body(Body::from(payload))
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+}
+
+pub async fn runtime_web_request(
+    State(_state): State<AppState>,
+    request: Request<Body>,
+) -> Result<Response<Body>, StatusCode> {
+    // /web/{container_id} is the public runtime path used after open-session has
+    // already created the browser cookie; from here lab-api only proxies traffic.
+    let proxy_base_url =
+        std::env::var("LAB_WEB_PROXY_BASE_URL").map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let original_uri = request.uri().clone();
     let target_url = build_runtime_proxy_target_url(&proxy_base_url, &original_uri)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    proxy_get_request(target_url, headers).await
+    proxy_request(target_url, request).await
 }
 
 pub async fn web_proxy_root_request(
     State(_state): State<AppState>,
     Path(container_id): Path<String>,
-    OriginalUri(original_uri): OriginalUri,
-    headers: HeaderMap,
+    request: Request<Body>,
 ) -> Result<Response<Body>, StatusCode> {
+    // The web-proxy role resolves the per-session Kubernetes Service and forwards
+    // the already-authenticated LAB-WEB request to the actual runtime container.
+    let original_uri = request.uri().clone();
     let target_url = build_session_service_target_url(&container_id, None, &original_uri)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    proxy_get_request(target_url, headers).await
+    proxy_request(target_url, request).await
 }
 
 pub async fn web_proxy_path_request(
     State(_state): State<AppState>,
     Path((container_id, path)): Path<(String, String)>,
-    OriginalUri(original_uri): OriginalUri,
-    headers: HeaderMap,
+    request: Request<Body>,
 ) -> Result<Response<Body>, StatusCode> {
+    let original_uri = request.uri().clone();
     let target_url = build_session_service_target_url(&container_id, Some(&path), &original_uri)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    proxy_get_request(target_url, headers).await
+    proxy_request(target_url, request).await
+}
+
+fn extract_user_id(headers: &HeaderMap) -> Result<Uuid, StatusCode> {
+    headers
+        .get(HDR_USER_ID)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| Uuid::parse_str(value).ok())
+        .ok_or(StatusCode::UNAUTHORIZED)
+}
+
+async fn fetch_web_runtime(session_id: Uuid) -> Result<WebRuntimeLookup, StatusCode> {
+    let sessions_ms_base =
+        std::env::var("SESSIONS_MS_URL").unwrap_or_else(|_| "http://localhost:3003".to_string());
+    let target_url = build_sessions_ms_runtime_lookup_url(&sessions_ms_base, session_id)?;
+
+    let response = reqwest::Client::new()
+        .get(target_url)
+        .send()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+
+    if !response.status().is_success() {
+        return Err(
+            StatusCode::from_u16(response.status().as_u16()).unwrap_or(StatusCode::BAD_GATEWAY)
+        );
+    }
+
+    let body = response
+        .bytes()
+        .await
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+
+    serde_json::from_slice::<SessionsApiResponse<WebRuntimeLookup>>(&body)
+        .map(|payload| payload.data)
+        .map_err(|_| StatusCode::BAD_GATEWAY)
+}
+
+fn build_sessions_ms_runtime_lookup_url(
+    sessions_ms_base: &str,
+    session_id: Uuid,
+) -> Result<Url, StatusCode> {
+    let mut url = Url::parse(sessions_ms_base).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    validate_sensitive_internal_url(&url)?;
+    url.set_path(&format!("/internal/sessions/{session_id}/web-runtime"));
+    url.set_query(None);
+    Ok(url)
+}
+
+fn validate_sensitive_internal_url(url: &Url) -> Result<(), StatusCode> {
+    match url.scheme() {
+        "https" => Ok(()),
+        // Local development keeps loopback HTTP, but remote internal traffic
+        // carrying session context must stay pinned to a trusted local target.
+        "http" if is_loopback_host(url) => Ok(()),
+        _ => Err(StatusCode::BAD_GATEWAY),
+    }
+}
+
+fn is_loopback_host(url: &Url) -> bool {
+    matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
+}
+
+fn build_lab_web_cookie(name: &str, token: &str, ttl_seconds: u64) -> String {
+    format!(
+        "{name}={token}; HttpOnly; Secure; SameSite=Lax; Path=/lab-api/web; Max-Age={ttl_seconds}"
+    )
+}
+
+fn current_unix_timestamp(ttl_seconds: u64) -> Result<usize, StatusCode> {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    Ok(now.as_secs().saturating_add(ttl_seconds) as usize)
 }
 
 fn build_runtime_proxy_target_url(base_url: &str, original_uri: &Uri) -> Result<String, String> {
@@ -61,22 +241,35 @@ fn build_runtime_proxy_target_url(base_url: &str, original_uri: &Uri) -> Result<
     Ok(target_url)
 }
 
+fn build_open_web_redirect_url(app_base_url: &str, container_id: &str) -> String {
+    format!(
+        "{}/web/{}/",
+        app_base_url.trim_end_matches('/'),
+        container_id
+    )
+}
+
 fn build_session_service_target_url(
     container_id: &str,
     path: Option<&str>,
     original_uri: &Uri,
 ) -> Result<String, String> {
-    let namespace =
-        std::env::var("WEB_PROXY_NAMESPACE").unwrap_or_else(|_| "labs-web".to_string());
+    let namespace = std::env::var("WEB_PROXY_NAMESPACE").unwrap_or_else(|_| "labs-web".to_string());
     let service_suffix =
         std::env::var("WEB_PROXY_SERVICE_SUFFIX").unwrap_or_else(|_| "-web".to_string());
 
-    // The web-proxy computes the stable Service DNS name directly from the
-    // session container_id instead of querying Kubernetes on each request.
-    let mut target_url = format!(
-        "http://{}{service_suffix}.{namespace}.svc.cluster.local",
-        container_id
-    );
+    let mut target_url = if let Some(service_host) =
+        read_session_service_env(container_id, &service_suffix, "SERVICE_HOST")
+    {
+        let service_port = read_session_service_env(container_id, &service_suffix, "SERVICE_PORT")
+            .unwrap_or_else(|| "80".to_string());
+        format!("http://{}:{}", service_host, service_port)
+    } else {
+        format!(
+            "http://{}{service_suffix}.{namespace}.svc.cluster.local",
+            container_id
+        )
+    };
 
     let stripped_path = match path {
         Some(value) if !value.is_empty() => format!("/{}", value.trim_start_matches('/')),
@@ -92,9 +285,29 @@ fn build_session_service_target_url(
     Ok(target_url)
 }
 
-async fn proxy_get_request(
+fn read_session_service_env(
+    container_id: &str,
+    service_suffix: &str,
+    suffix: &str,
+) -> Option<String> {
+    let service_name = format!("{}{}", container_id, service_suffix);
+    let env_key = service_name
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_uppercase()
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+
+    std::env::var(format!("{}_{}", env_key, suffix)).ok()
+}
+
+async fn proxy_request(
     target_url: String,
-    incoming_headers: HeaderMap,
+    request: Request<Body>,
 ) -> Result<Response<Body>, StatusCode> {
     let timeout_secs = std::env::var("WEB_PROXY_REQUEST_TIMEOUT_SECONDS")
         .ok()
@@ -104,37 +317,110 @@ async fn proxy_get_request(
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
         .build()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        .map_err(|error| {
+            error!("failed to build LAB-WEB proxy client: {}", error);
+            StatusCode::INTERNAL_SERVER_ERROR
+        })?;
 
-    let mut request = client.get(&target_url);
+    let method = reqwest::Method::from_bytes(request.method().as_str().as_bytes())
+        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let cookie_name =
+        std::env::var("LAB_WEB_COOKIE_NAME").unwrap_or_else(|_| DEFAULT_COOKIE_NAME.to_string());
 
-    // Forward only end-to-end headers. Hop-by-hop transport headers are rebuilt
-    // by the HTTP client/server layers and should not be copied blindly.
-    for (name, value) in &incoming_headers {
-        if !is_hop_by_hop_header(name) {
-            request = request.header(name, value);
-        }
+    let forwarded_headers: Vec<(HeaderName, axum::http::HeaderValue)> = request
+        .headers()
+        .iter()
+        .filter_map(|(name, value)| filter_request_header(name, value, &cookie_name))
+        .collect();
+
+    let body_bytes = to_bytes(request.into_body(), usize::MAX)
+        .await
+        .map_err(|error| {
+            error!(
+                "failed to read LAB-WEB request body for {}: {}",
+                target_url, error
+            );
+            StatusCode::BAD_GATEWAY
+        })?;
+
+    let mut outbound = client.request(method, &target_url).body(body_bytes);
+    for (name, value) in forwarded_headers {
+        outbound = outbound.header(name, value);
     }
 
-    let upstream = request.send().await.map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let upstream = outbound.send().await.map_err(|error| {
+        error!(
+            "LAB-WEB upstream request failed for {}: {}",
+            target_url, error
+        );
+        StatusCode::BAD_GATEWAY
+    })?;
     let status = upstream.status();
     let response_headers = upstream.headers().clone();
-    let body = upstream
-        .bytes()
-        .await
-        .map_err(|_| StatusCode::BAD_GATEWAY)?;
+    let body = upstream.bytes().await.map_err(|error| {
+        error!(
+            "failed to read LAB-WEB upstream response body for {}: {}",
+            target_url, error
+        );
+        StatusCode::BAD_GATEWAY
+    })?;
 
-    let mut response = Response::builder().status(status);
+    if !status.is_success() {
+        let body_preview = String::from_utf8_lossy(&body);
+        error!(
+            "LAB-WEB upstream returned {} for {} with body preview: {}",
+            status,
+            target_url,
+            body_preview.chars().take(200).collect::<String>()
+        );
+    }
+    let mut response = Response::new(Body::from(body));
+    *response.status_mut() = status;
 
     for (name, value) in &response_headers {
         if !is_hop_by_hop_header(name) {
-            response = response.header(name, value);
+            response.headers_mut().append(name, value.clone());
         }
     }
 
-    response
-        .body(Body::from(body))
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)
+    Ok(response)
+}
+
+fn filter_request_header(
+    name: &HeaderName,
+    value: &axum::http::HeaderValue,
+    lab_web_cookie_name: &str,
+) -> Option<(HeaderName, axum::http::HeaderValue)> {
+    if is_hop_by_hop_header(name) {
+        return None;
+    }
+
+    if name.as_str().eq_ignore_ascii_case("cookie") {
+        let raw = value.to_str().ok()?;
+        let filtered = strip_cookie_by_name(raw, lab_web_cookie_name);
+
+        if filtered.is_empty() {
+            return None;
+        }
+
+        let rewritten = axum::http::HeaderValue::from_str(&filtered).ok()?;
+        return Some((name.clone(), rewritten));
+    }
+
+    if is_platform_private_header(name) {
+        return None;
+    }
+
+    Some((name.clone(), value.clone()))
+}
+
+fn is_platform_private_header(name: &HeaderName) -> bool {
+    let header = name.as_str().to_ascii_lowercase();
+
+    header == "authorization"
+        || header == "origin"
+        || header == "referer"
+        || header.starts_with("x-altair-")
 }
 
 fn is_hop_by_hop_header(name: &HeaderName) -> bool {
@@ -153,18 +439,57 @@ fn is_hop_by_hop_header(name: &HeaderName) -> bool {
     )
 }
 
+fn strip_cookie_by_name(cookie_header: &str, cookie_name: &str) -> String {
+    cookie_header
+        .split(';')
+        .filter_map(|pair| {
+            let trimmed = pair.trim();
+            if trimmed.is_empty() {
+                return None;
+            }
+
+            let mut parts = trimmed.splitn(2, '=');
+            let name = parts.next()?.trim();
+            let value = parts.next()?.trim();
+
+            if name == cookie_name || value.is_empty() {
+                None
+            } else {
+                Some(format!("{name}={value}"))
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{build_runtime_proxy_target_url, build_session_service_target_url};
-    use axum::http::Uri;
+    use super::{
+        build_open_web_redirect_url, build_runtime_proxy_target_url,
+        build_session_service_target_url, build_sessions_ms_runtime_lookup_url,
+        filter_request_header, is_loopback_host, strip_cookie_by_name,
+    };
+    use axum::http::{HeaderName, HeaderValue, StatusCode, Uri};
+    use reqwest::Url;
+    use uuid::Uuid;
+
+    #[test]
+    fn open_web_redirect_url_keeps_trailing_slash() {
+        let target =
+            build_open_web_redirect_url("https://api.altair-platform.space", "ctf-session-123");
+
+        assert_eq!(
+            target,
+            "https://api.altair-platform.space/web/ctf-session-123/"
+        );
+    }
 
     #[test]
     fn runtime_proxy_target_keeps_path_and_query() {
-        // The runtime-api should forward the original public /web path unchanged
-        // to the internal web-proxy base URL.
-        let uri: Uri = "/web/ctf-session-123/assets/app.js?lang=en".parse().unwrap();
-        let target =
-            build_runtime_proxy_target_url("http://10.200.0.14", &uri).unwrap();
+        let uri: Uri = "/web/ctf-session-123/assets/app.js?lang=en"
+            .parse()
+            .unwrap();
+        let target = build_runtime_proxy_target_url("http://10.200.0.14", &uri).unwrap();
 
         assert_eq!(
             target,
@@ -174,8 +499,6 @@ mod tests {
 
     #[test]
     fn session_service_target_rewrites_root_path() {
-        // The internal web-proxy strips the /web/{container_id} prefix and sends
-        // root requests to the session Service root path.
         let uri: Uri = "/web/ctf-session-123".parse().unwrap();
         let target = build_session_service_target_url("ctf-session-123", None, &uri).unwrap();
 
@@ -187,19 +510,96 @@ mod tests {
 
     #[test]
     fn session_service_target_rewrites_nested_path_and_query() {
-        // Nested assets and query strings must survive the rewrite to the
-        // per-session Service DNS endpoint.
-        let uri: Uri = "/web/ctf-session-123/assets/app.js?lang=en".parse().unwrap();
-        let target = build_session_service_target_url(
-            "ctf-session-123",
-            Some("assets/app.js"),
-            &uri,
-        )
-        .unwrap();
+        let uri: Uri = "/web/ctf-session-123/assets/app.js?lang=en"
+            .parse()
+            .unwrap();
+        let target =
+            build_session_service_target_url("ctf-session-123", Some("assets/app.js"), &uri)
+                .unwrap();
 
         assert_eq!(
             target,
             "http://ctf-session-123-web.labs-web.svc.cluster.local/assets/app.js?lang=en"
+        );
+    }
+
+    #[test]
+    fn sessions_ms_lookup_url_keeps_trusted_host() {
+        let session_id = Uuid::parse_str("9bc97880-f720-41c1-9e8a-a2010e2f02c2").unwrap();
+        let url = build_sessions_ms_runtime_lookup_url(
+            "https://sessions.example.test/base",
+            session_id,
+        )
+        .unwrap();
+
+        assert_eq!(
+            url,
+            Url::parse(
+                "https://sessions.example.test/internal/sessions/9bc97880-f720-41c1-9e8a-a2010e2f02c2/web-runtime"
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn sessions_ms_lookup_url_accepts_local_http_for_development() {
+        let session_id = Uuid::parse_str("9bc97880-f720-41c1-9e8a-a2010e2f02c2").unwrap();
+        let url =
+            build_sessions_ms_runtime_lookup_url("http://localhost:3003", session_id).unwrap();
+
+        assert_eq!(
+            url,
+            Url::parse(
+                "http://localhost:3003/internal/sessions/9bc97880-f720-41c1-9e8a-a2010e2f02c2/web-runtime"
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn sessions_ms_lookup_url_rejects_remote_http() {
+        let session_id = Uuid::parse_str("9bc97880-f720-41c1-9e8a-a2010e2f02c2").unwrap();
+
+        assert_eq!(
+            build_sessions_ms_runtime_lookup_url("http://sessions.example.test", session_id)
+                .unwrap_err(),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn loopback_detection_accepts_local_targets_only() {
+        assert!(is_loopback_host(&Url::parse("http://localhost:3003").unwrap()));
+        assert!(is_loopback_host(&Url::parse("http://127.0.0.1:3003").unwrap()));
+        assert!(!is_loopback_host(
+            &Url::parse("https://sessions.example.test").unwrap()
+        ));
+    }
+
+    #[test]
+    fn strip_cookie_by_name_keeps_runtime_cookie_for_lab_backend() {
+        let filtered = strip_cookie_by_name(
+            "altair_web_session=token; unlocked=1; theme=dark",
+            "altair_web_session",
+        );
+
+        assert_eq!(filtered, "unlocked=1; theme=dark");
+    }
+
+    #[test]
+    fn filter_request_header_rewrites_cookie_header_when_runtime_cookie_exists() {
+        let filtered = filter_request_header(
+            &HeaderName::from_static("cookie"),
+            &HeaderValue::from_static("altair_web_session=token; unlocked=1"),
+            "altair_web_session",
+        );
+
+        assert_eq!(
+            filtered,
+            Some((
+                HeaderName::from_static("cookie"),
+                HeaderValue::from_static("unlocked=1")
+            ))
         );
     }
 }
