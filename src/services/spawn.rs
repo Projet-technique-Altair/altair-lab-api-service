@@ -243,7 +243,9 @@ async fn create_web_session_service(
     let service_name = build_web_service_name(pod_name);
     let service = build_web_service(pod_name, payload);
 
-    let _ = services.delete(&service_name, &DeleteParams::default()).await;
+    let _ = services
+        .delete(&service_name, &DeleteParams::default())
+        .await;
     services
         .create(&PostParams::default(), &service)
         .await
