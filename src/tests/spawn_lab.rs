@@ -207,10 +207,7 @@ fn test_build_pod_metadata() {
 
     let labels = pod.metadata.labels.unwrap();
     assert_eq!(labels.get("app"), Some(&"altair-lab".to_string()));
-    assert_eq!(
-        labels.get("lab_type"),
-        Some(&"guided_terminal".to_string())
-    );
+    assert_eq!(labels.get("lab_type"), Some(&"guided_terminal".to_string()));
     assert_eq!(
         labels.get("session_id"),
         Some(&payload.session_id.to_string())
@@ -301,7 +298,10 @@ fn test_build_web_service_configuration() {
     payload.app_port = Some(3000);
 
     let service = build_web_service("ctf-session-123", &payload);
-    assert_eq!(service.metadata.name, Some("ctf-session-123-web".to_string()));
+    assert_eq!(
+        service.metadata.name,
+        Some("ctf-session-123-web".to_string())
+    );
 
     let spec = service.spec.unwrap();
     assert_eq!(spec.type_, Some("ClusterIP".to_string()));

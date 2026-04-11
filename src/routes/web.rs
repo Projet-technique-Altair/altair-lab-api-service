@@ -526,11 +526,9 @@ mod tests {
     #[test]
     fn sessions_ms_lookup_url_keeps_trusted_host() {
         let session_id = Uuid::parse_str("9bc97880-f720-41c1-9e8a-a2010e2f02c2").unwrap();
-        let url = build_sessions_ms_runtime_lookup_url(
-            "https://sessions.example.test/base",
-            session_id,
-        )
-        .unwrap();
+        let url =
+            build_sessions_ms_runtime_lookup_url("https://sessions.example.test/base", session_id)
+                .unwrap();
 
         assert_eq!(
             url,
@@ -569,8 +567,12 @@ mod tests {
 
     #[test]
     fn loopback_detection_accepts_local_targets_only() {
-        assert!(is_loopback_host(&Url::parse("http://localhost:3003").unwrap()));
-        assert!(is_loopback_host(&Url::parse("http://127.0.0.1:3003").unwrap()));
+        assert!(is_loopback_host(
+            &Url::parse("http://localhost:3003").unwrap()
+        ));
+        assert!(is_loopback_host(
+            &Url::parse("http://127.0.0.1:3003").unwrap()
+        ));
         assert!(!is_loopback_host(
             &Url::parse("https://sessions.example.test").unwrap()
         ));

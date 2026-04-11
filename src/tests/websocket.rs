@@ -42,8 +42,9 @@ fn test_attach_params_default_container() {
 fn test_buffer_size_constant() {
     // Buffer size should be reasonable for terminal output
     const BUFFER_SIZE: usize = 4096;
-    assert!(BUFFER_SIZE >= 1024); // At least 1KB
-    assert!(BUFFER_SIZE <= 65536); // At most 64KB
+    const _: () = assert!(BUFFER_SIZE >= 1024); // At least 1KB
+    const _: () = assert!(BUFFER_SIZE <= 65536); // At most 64KB
+    assert_eq!(BUFFER_SIZE, 4096);
 }
 
 #[test]
@@ -59,7 +60,7 @@ fn test_namespace_constant() {
 
 #[test]
 fn test_shell_command_format() {
-    let command = vec!["/bin/bash", "-lc", "exec su - student"];
+    let command = ["/bin/bash", "-lc", "exec su - student"];
 
     assert_eq!(command.len(), 3);
     assert_eq!(command[0], "/bin/bash");
@@ -70,7 +71,7 @@ fn test_shell_command_format() {
 
 #[test]
 fn test_shell_command_uses_login_shell() {
-    let command = vec!["/bin/bash", "-lc", "exec su - student"];
+    let command = ["/bin/bash", "-lc", "exec su - student"];
 
     // -l flag ensures login shell (loads profile)
     assert!(command[1].contains('l'));
