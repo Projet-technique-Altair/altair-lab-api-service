@@ -6,6 +6,7 @@ use axum::{
     http::{HeaderMap, HeaderName, Request, Response, StatusCode, Uri},
 };
 use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
+use reqwest::Url;
 use serde::{Deserialize, Serialize};
 use tracing::error;
 use uuid::Uuid;
@@ -166,11 +167,7 @@ fn extract_user_id(headers: &HeaderMap) -> Result<Uuid, StatusCode> {
 async fn fetch_web_runtime(session_id: Uuid) -> Result<WebRuntimeLookup, StatusCode> {
     let sessions_ms_base =
         std::env::var("SESSIONS_MS_URL").unwrap_or_else(|_| "http://localhost:3003".to_string());
-    let target_url = format!(
-        "{}/internal/sessions/{}/web-runtime",
-        sessions_ms_base.trim_end_matches('/'),
-        session_id
-    );
+    let target_url = build_sessions_ms_runtime_lookup_url(&sessions_ms_base, session_id)?;
 
     let response = reqwest::Client::new()
         .get(target_url)
@@ -192,6 +189,31 @@ async fn fetch_web_runtime(session_id: Uuid) -> Result<WebRuntimeLookup, StatusC
     serde_json::from_slice::<SessionsApiResponse<WebRuntimeLookup>>(&body)
         .map(|payload| payload.data)
         .map_err(|_| StatusCode::BAD_GATEWAY)
+}
+
+fn build_sessions_ms_runtime_lookup_url(
+    sessions_ms_base: &str,
+    session_id: Uuid,
+) -> Result<Url, StatusCode> {
+    let mut url = Url::parse(sessions_ms_base).map_err(|_| StatusCode::BAD_GATEWAY)?;
+    validate_sensitive_internal_url(&url)?;
+    url.set_path(&format!("/internal/sessions/{session_id}/web-runtime"));
+    url.set_query(None);
+    Ok(url)
+}
+
+fn validate_sensitive_internal_url(url: &Url) -> Result<(), StatusCode> {
+    match url.scheme() {
+        "https" => Ok(()),
+        // Local development keeps loopback HTTP, but remote internal traffic
+        // carrying session context must stay pinned to a trusted local target.
+        "http" if is_loopback_host(url) => Ok(()),
+        _ => Err(StatusCode::BAD_GATEWAY),
+    }
+}
+
+fn is_loopback_host(url: &Url) -> bool {
+    matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "::1"))
 }
 
 fn build_lab_web_cookie(name: &str, token: &str, ttl_seconds: u64) -> String {
@@ -443,10 +465,13 @@ fn strip_cookie_by_name(cookie_header: &str, cookie_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::{
-        build_open_web_redirect_url, build_runtime_proxy_target_url, build_session_service_target_url,
-        filter_request_header, strip_cookie_by_name,
+        build_open_web_redirect_url, build_runtime_proxy_target_url,
+        build_session_service_target_url, build_sessions_ms_runtime_lookup_url,
+        filter_request_header, is_loopback_host, strip_cookie_by_name,
     };
-    use axum::http::{HeaderName, HeaderValue, Uri};
+    use axum::http::{HeaderName, HeaderValue, StatusCode, Uri};
+    use reqwest::Url;
+    use uuid::Uuid;
 
     #[test]
     fn open_web_redirect_url_keeps_trailing_slash() {
@@ -496,6 +521,59 @@ mod tests {
             target,
             "http://ctf-session-123-web.labs-web.svc.cluster.local/assets/app.js?lang=en"
         );
+    }
+
+    #[test]
+    fn sessions_ms_lookup_url_keeps_trusted_host() {
+        let session_id = Uuid::parse_str("9bc97880-f720-41c1-9e8a-a2010e2f02c2").unwrap();
+        let url = build_sessions_ms_runtime_lookup_url(
+            "https://sessions.example.test/base",
+            session_id,
+        )
+        .unwrap();
+
+        assert_eq!(
+            url,
+            Url::parse(
+                "https://sessions.example.test/internal/sessions/9bc97880-f720-41c1-9e8a-a2010e2f02c2/web-runtime"
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn sessions_ms_lookup_url_accepts_local_http_for_development() {
+        let session_id = Uuid::parse_str("9bc97880-f720-41c1-9e8a-a2010e2f02c2").unwrap();
+        let url =
+            build_sessions_ms_runtime_lookup_url("http://localhost:3003", session_id).unwrap();
+
+        assert_eq!(
+            url,
+            Url::parse(
+                "http://localhost:3003/internal/sessions/9bc97880-f720-41c1-9e8a-a2010e2f02c2/web-runtime"
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn sessions_ms_lookup_url_rejects_remote_http() {
+        let session_id = Uuid::parse_str("9bc97880-f720-41c1-9e8a-a2010e2f02c2").unwrap();
+
+        assert_eq!(
+            build_sessions_ms_runtime_lookup_url("http://sessions.example.test", session_id)
+                .unwrap_err(),
+            StatusCode::BAD_GATEWAY
+        );
+    }
+
+    #[test]
+    fn loopback_detection_accepts_local_targets_only() {
+        assert!(is_loopback_host(&Url::parse("http://localhost:3003").unwrap()));
+        assert!(is_loopback_host(&Url::parse("http://127.0.0.1:3003").unwrap()));
+        assert!(!is_loopback_host(
+            &Url::parse("https://sessions.example.test").unwrap()
+        ));
     }
 
     #[test]
