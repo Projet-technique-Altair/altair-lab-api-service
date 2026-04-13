@@ -25,6 +25,7 @@ const WEB_SERVICE_PORT: i32 = 80;
 fn create_test_spawn_request() -> SpawnRequest {
     SpawnRequest {
         session_id: Uuid::new_v4(),
+        runtime_id: Uuid::new_v4(),
         lab_type: "guided_terminal".to_string(),
         template_path: "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest".to_string(),
         lab_delivery: "terminal".to_string(),
@@ -97,6 +98,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
     let labels = BTreeMap::from([
         ("app".to_string(), "altair-lab".to_string()),
         ("session_id".to_string(), payload.session_id.to_string()),
+        ("runtime_id".to_string(), payload.runtime_id.to_string()),
         ("lab_type".to_string(), payload.lab_type.clone()),
         ("runtime_kind".to_string(), payload.lab_delivery.clone()),
     ]);
@@ -183,7 +185,7 @@ fn build_web_service(pod_name: &str, payload: &SpawnRequest) -> Service {
             type_: Some("ClusterIP".to_string()),
             selector: Some(BTreeMap::from([
                 ("app".to_string(), "altair-lab".to_string()),
-                ("session_id".to_string(), payload.session_id.to_string()),
+                ("runtime_id".to_string(), payload.runtime_id.to_string()),
                 ("runtime_kind".to_string(), "web".to_string()),
             ])),
             ports: Some(vec![ServicePort {
@@ -211,6 +213,10 @@ fn test_build_pod_metadata() {
     assert_eq!(
         labels.get("session_id"),
         Some(&payload.session_id.to_string())
+    );
+    assert_eq!(
+        labels.get("runtime_id"),
+        Some(&payload.runtime_id.to_string())
     );
     assert_eq!(labels.get("runtime_kind"), Some(&"terminal".to_string()));
 }
@@ -519,19 +525,22 @@ fn test_is_pod_failed_pending() {
 #[test]
 fn test_spawn_request_deserialize() {
     let session_id = Uuid::new_v4();
+    let runtime_id = Uuid::new_v4();
     let json = format!(
         r#"{{
             "session_id": "{}",
+            "runtime_id": "{}",
             "lab_type": "guided_terminal",
             "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest",
             "lab_delivery": "terminal",
             "app_port": null
         }}"#,
-        session_id
+        session_id, runtime_id
     );
 
     let request: SpawnRequest = serde_json::from_str(&json).unwrap();
     assert_eq!(request.session_id, session_id);
+    assert_eq!(request.runtime_id, runtime_id);
     assert_eq!(request.lab_type, "guided_terminal");
     assert_eq!(request.lab_delivery, "terminal");
     assert_eq!(request.app_port, None);
@@ -544,19 +553,22 @@ fn test_spawn_request_deserialize() {
 #[test]
 fn test_spawn_request_deserialize_web_with_app_port() {
     let session_id = Uuid::new_v4();
+    let runtime_id = Uuid::new_v4();
     let json = format!(
         r#"{{
             "session_id": "{}",
+            "runtime_id": "{}",
             "lab_type": "guided_web",
             "template_path": "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest",
             "lab_delivery": "web",
             "app_port": 3000
         }}"#,
-        session_id
+        session_id, runtime_id
     );
 
     let request: SpawnRequest = serde_json::from_str(&json).unwrap();
     assert_eq!(request.session_id, session_id);
+    assert_eq!(request.runtime_id, runtime_id);
     assert_eq!(request.lab_delivery, "web");
     assert_eq!(request.app_port, Some(3000));
 }
@@ -680,26 +692,26 @@ fn test_is_valid_lab_type_rejects_empty_or_invalid_values() {
 
 #[test]
 fn test_pod_name_format() {
-    let session_id = Uuid::new_v4();
-    let pod_name = format!("ctf-session-{}", session_id);
+    let runtime_id = Uuid::new_v4();
+    let pod_name = format!("ctf-runtime-{}", runtime_id);
 
-    assert!(pod_name.starts_with("ctf-session-"));
-    assert!(pod_name.contains(&session_id.to_string()));
+    assert!(pod_name.starts_with("ctf-runtime-"));
+    assert!(pod_name.contains(&runtime_id.to_string()));
 }
 
 #[test]
 fn test_secret_name_format() {
-    let session_id = Uuid::new_v4();
-    let secret_name = format!("gcr-secret-{}", session_id);
+    let runtime_id = Uuid::new_v4();
+    let secret_name = format!("gcr-secret-{}", runtime_id);
 
     assert!(secret_name.starts_with("gcr-secret-"));
-    assert!(secret_name.contains(&session_id.to_string()));
+    assert!(secret_name.contains(&runtime_id.to_string()));
 }
 
 #[test]
 fn test_webshell_url_format() {
-    let session_id = Uuid::new_v4();
-    let pod_name = format!("ctf-session-{}", session_id);
+    let runtime_id = Uuid::new_v4();
+    let pod_name = format!("ctf-runtime-{}", runtime_id);
     let webshell_url = format!("ws://lab-api-service:8080/spawn/webshell/{}", pod_name);
 
     assert!(webshell_url.starts_with("ws://"));
