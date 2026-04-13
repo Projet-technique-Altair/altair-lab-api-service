@@ -351,20 +351,14 @@ fn is_pod_failed(pod: &Pod) -> bool {
 
 pub async fn delete_lab(state: State, pod_name: String) {
     // Stop requests only carry the container_id, so deletion checks both runtime
-    // namespaces and cleans up the web Service when the runtime lived in labs-web.
+    // namespaces and always cleans the derived web Service name as well.
     let default_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
     let web_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), WEB_NAMESPACE);
     let web_services: Api<Service> = Api::namespaced(state.kube_client.clone(), WEB_NAMESPACE);
 
-    if !delete_pod_if_exists(&default_pods, &pod_name).await {
-        let deleted_from_web = delete_pod_if_exists(&web_pods, &pod_name).await;
-        if deleted_from_web {
-            let service_name = build_web_service_name(&pod_name);
-            let _ = web_services
-                .delete(&service_name, &DeleteParams::default())
-                .await;
-        }
-    }
+    let _ = delete_pod_if_exists(&default_pods, &pod_name).await;
+    let _ = delete_pod_if_exists(&web_pods, &pod_name).await;
+    let _ = delete_service_if_exists(&web_services, &build_web_service_name(&pod_name)).await;
 }
 
 pub async fn status_lab(state: State, pod_name: String) -> String {
@@ -388,6 +382,17 @@ async fn delete_pod_if_exists(pods: &Api<Pod>, pod_name: &str) -> bool {
         Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
         Err(error) => {
             error!("Failed to delete pod {}: {:?}", pod_name, error);
+            false
+        }
+    }
+}
+
+async fn delete_service_if_exists(services: &Api<Service>, service_name: &str) -> bool {
+    match services.delete(service_name, &DeleteParams::default()).await {
+        Ok(_) => true,
+        Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
+        Err(error) => {
+            error!("Failed to delete service {}: {:?}", service_name, error);
             false
         }
     }
