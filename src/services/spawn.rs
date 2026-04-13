@@ -42,8 +42,9 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
     let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
     let services: Api<Service> = Api::namespaced(client.clone(), namespace);
 
-    let pod_name = format!("ctf-session-{}", payload.session_id);
-    let secret_name = format!("gcr-secret-{}", payload.session_id);
+    // Runtime ids scope infra names so one session can cycle through multiple Pods.
+    let pod_name = format!("ctf-runtime-{}", payload.runtime_id);
+    let secret_name = format!("gcr-secret-{}", payload.runtime_id);
 
     if state.local_mode {
         info!("Local mode enabled: skipping GCP image pull secret creation");
@@ -155,6 +156,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
     let labels = BTreeMap::from([
         ("app".to_string(), "altair-lab".to_string()),
         ("session_id".to_string(), payload.session_id.to_string()),
+        ("runtime_id".to_string(), payload.runtime_id.to_string()),
         ("lab_type".to_string(), payload.lab_type.clone()),
         // This keeps the future web session Service scoped to web runtimes only.
         ("runtime_kind".to_string(), payload.lab_delivery.clone()),
@@ -220,7 +222,7 @@ fn build_web_service(pod_name: &str, payload: &SpawnRequest) -> Service {
             type_: Some("ClusterIP".to_string()),
             selector: Some(BTreeMap::from([
                 ("app".to_string(), "altair-lab".to_string()),
-                ("session_id".to_string(), payload.session_id.to_string()),
+                ("runtime_id".to_string(), payload.runtime_id.to_string()),
                 ("runtime_kind".to_string(), "web".to_string()),
             ])),
             ports: Some(vec![ServicePort {
