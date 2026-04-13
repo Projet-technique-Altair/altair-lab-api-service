@@ -30,9 +30,10 @@ jobs:
       dockerfile: Dockerfile
       platform: linux/amd64
 
-      # This service has the heaviest runtime configuration:
-      # GKE endpoint, cluster CA, webshel URL, runtime service account, and so on.
-      # Keep that configuration explicit in repo variables instead of hiding it here.
+      # This service keeps the control-plane configuration:
+      # GKE endpoint, cluster CA, sessions-ms lookup, webshell URL, LAB-WEB cookie signing.
+      # The runtime HTTP proxy target is no longer hosted here, so remove
+      # LAB_API_ROLE and LAB_WEB_PROXY_BASE_URL from CLOUD_RUN_ENV_VARS.
       cloud_run_service_account: ${{ vars.CLOUD_RUN_SERVICE_ACCOUNT }}
       cloud_run_env_vars: ${{ vars.CLOUD_RUN_ENV_VARS }}
       cloud_run_secrets: ${{ vars.CLOUD_RUN_SECRETS }}
