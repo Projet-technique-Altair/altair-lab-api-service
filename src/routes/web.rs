@@ -24,7 +24,6 @@ struct SessionsApiResponse<T> {
 #[derive(Deserialize)]
 struct WebRuntimeLookup {
     user_id: Uuid,
-    lab_id: Uuid,
     runtime_kind: String,
     container_id: String,
     status: String,
@@ -69,9 +68,8 @@ pub async fn open_web_session(
         return Err(StatusCode::CONFLICT);
     }
 
-    let cookie_base_name =
+    let cookie_name =
         std::env::var("LAB_WEB_COOKIE_NAME").unwrap_or_else(|_| DEFAULT_COOKIE_NAME.to_string());
-    let cookie_name = build_lab_web_cookie_name(&cookie_base_name, runtime.lab_id);
     let ttl_seconds = std::env::var("LAB_WEB_COOKIE_TTL_SECONDS")
         .ok()
         .and_then(|value| value.parse::<u64>().ok())
@@ -178,10 +176,6 @@ fn build_lab_web_cookie(name: &str, token: &str, ttl_seconds: u64) -> String {
     )
 }
 
-fn build_lab_web_cookie_name(base_name: &str, lab_id: Uuid) -> String {
-    format!("{base_name}_{lab_id}")
-}
-
 fn current_unix_timestamp(ttl_seconds: u64) -> Result<usize, StatusCode> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -201,8 +195,7 @@ fn build_open_web_redirect_url(app_base_url: &str, container_id: &str) -> String
 #[cfg(test)]
 mod tests {
     use super::{
-        build_lab_web_cookie_name, build_open_web_redirect_url,
-        build_sessions_ms_runtime_lookup_url, is_loopback_host,
+        build_open_web_redirect_url, build_sessions_ms_runtime_lookup_url, is_loopback_host,
     };
     use axum::http::StatusCode;
     use reqwest::Url;
@@ -216,17 +209,6 @@ mod tests {
         assert_eq!(
             target,
             "https://api.altair-platform.space/web/ctf-session-123/"
-        );
-    }
-
-    #[test]
-    fn web_cookie_name_is_scoped_by_lab_id() {
-        let lab_id = Uuid::parse_str("7f30fd46-2ed8-4df1-a713-4f939d4d64e8").unwrap();
-        let cookie_name = build_lab_web_cookie_name("altair_web_session", lab_id);
-
-        assert_eq!(
-            cookie_name,
-            "altair_web_session_7f30fd46-2ed8-4df1-a713-4f939d4d64e8"
         );
     }
 
