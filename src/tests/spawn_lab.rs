@@ -133,7 +133,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
                 }),
                 volume_mounts: Some(vec![VolumeMount {
                     name: "var-log".into(),
-                    mount_path: "/var/log".into(),
+                    mount_path: "/var/log/altair".into(),
                     ..Default::default()
                 }]),
                 ..Default::default()
@@ -284,7 +284,7 @@ fn test_build_pod_volumes() {
     let mounts = container.volume_mounts.as_ref().unwrap();
     assert_eq!(mounts.len(), 1);
     assert_eq!(mounts[0].name, "var-log");
-    assert_eq!(mounts[0].mount_path, "/var/log");
+    assert_eq!(mounts[0].mount_path, "/var/log/altair");
 }
 
 #[test]

@@ -192,7 +192,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
                 }),
                 volume_mounts: Some(vec![VolumeMount {
                     name: "var-log".into(),
-                    mount_path: "/var/log".into(),
+                    mount_path: "/var/log/altair".into(),
                     ..Default::default()
                 }]),
                 ..Default::default()

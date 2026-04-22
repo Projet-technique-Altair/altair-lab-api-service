@@ -413,11 +413,11 @@ ws.send(new TextEncoder().encode('ls -la\n'));
 | **Image** | User-provided `template_path` | Lab environment image |
 | **Resources (Requests)** | `256Mi` memory, `250m` CPU | Minimum guaranteed resources |
 | **Resources (Limits)** | `512Mi` memory, `500m` CPU | Maximum allowed resources |
-| **Volume Mount** | `/var/log` (emptyDir) | Ephemeral log storage |
+| **Volume Mount** | `/var/log/altair` (emptyDir) | Ephemeral log storage |
 
 **Volumes:**
 
-- `emptyDir` mounted at `/var/log` (deleted with pod)
+- `emptyDir` mounted at `/var/log/altair` (deleted with pod)
 
 ---
 
