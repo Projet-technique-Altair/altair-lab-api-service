@@ -11,7 +11,7 @@
 
 ---
 
-## Description
+## description
 
 The **Altaïr Lab API Service** is a stateless runtime orchestrator that provisions ephemeral Kubernetes pods for hands-on cybersecurity lab environments. It creates isolated containers on-demand, manages their lifecycle, and exposes interactive browser-based terminals via WebSocket.
 
