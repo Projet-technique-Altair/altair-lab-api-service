@@ -1,3 +1,36 @@
+/**
+ * @file spawn — HTTP routes for lab runtime lifecycle.
+ *
+ * @remarks
+ * Exposes endpoints to manage lab runtime instances,
+ * including spawning, stopping, and querying status.
+ *
+ * Endpoints:
+ *
+ *  - `POST /spawn` → create a new lab runtime (Pod)
+ *  - `POST /stop` → stop and delete a runtime
+ *  - `GET /status/:container_id` → retrieve runtime status
+ *
+ * Key characteristics:
+ *
+ *  - Delegates orchestration logic to `services::spawn`
+ *  - Supports both terminal and web runtimes
+ *  - Dynamically builds access URLs (webshell or app)
+ *  - Uses environment variables for base URLs
+ *  - Returns structured responses for frontend consumption
+ *
+ * Features:
+ *
+ *  - Automatic runtime kind resolution (web vs terminal)
+ *  - WebSocket endpoint generation for terminal sessions
+ *  - HTTP endpoint generation for web labs
+ *
+ * This module acts as the public API layer for runtime management,
+ * bridging client requests with Kubernetes-backed execution.
+ *
+ * @packageDocumentation
+ */
+
 use axum::{
     extract::{Path, State},
     http::StatusCode,

@@ -1,3 +1,31 @@
+/**
+ * @file spawn — runtime spawn and lifecycle models.
+ *
+ * @remarks
+ * Defines the request and response structures used to manage
+ * lab runtime instances (containers/sessions).
+ *
+ * Includes:
+ *
+ *  - Spawn request payload (`SpawnRequest`)
+ *  - Spawn response structures (`SpawnResponse`, `SpawnResponseData`)
+ *  - Stop request/response (`StopRequest`, `StopResponse`)
+ *  - Status response (`StatusResponse`)
+ *
+ * Key characteristics:
+ *
+ *  - Identifies sessions and runtimes via UUIDs
+ *  - Supports multiple lab types and delivery modes
+ *  - Provides runtime metadata (container_id, runtime_kind)
+ *  - Exposes access endpoints (webshell_url, optional app_url)
+ *
+ * This module represents the contract between the lab runtime API
+ * and its consumers (gateway, frontend), handling lifecycle operations:
+ * spawn → status → stop.
+ *
+ * @packageDocumentation
+ */
+
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -5,8 +33,8 @@ use uuid::Uuid;
 pub struct SpawnRequest {
     pub session_id: Uuid,
     pub runtime_id: Uuid,
-    pub lab_type: String,      // e.g. "ctf_terminal_guided"
-    pub template_path: String, // e.g. "altair/lab-path-hijacking-guided:v1"
+    pub lab_type: String,      
+    pub template_path: String, 
     pub lab_delivery: String,
     pub app_port: Option<i32>,
 }

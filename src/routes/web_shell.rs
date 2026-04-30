@@ -1,3 +1,26 @@
+/**
+ * @file web_shell — HTTP route for WebSocket terminal access.
+ *
+ * @remarks
+ * Exposes the endpoint used to establish a WebSocket connection
+ * to a running lab Pod for interactive terminal access.
+ *
+ * Endpoint:
+ *
+ *  - `GET /spawn/webshell/:pod_name` → upgrade to WebSocket terminal session
+ *
+ * Key characteristics:
+ *
+ *  - Uses Axum WebSocket upgrade mechanism
+ *  - Delegates connection handling to `services::web_shell`
+ *  - Passes Pod identifier and application state to the handler
+ *
+ * This route acts as the entry point for terminal sessions,
+ * enabling real-time interaction with lab containers.
+ *
+ * @packageDocumentation
+ */
+
 use axum::{
     extract::{ws::WebSocketUpgrade, Path, State},
     response::IntoResponse,
