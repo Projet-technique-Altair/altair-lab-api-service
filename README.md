@@ -1,6 +1,6 @@
 # Altaïr Lab API Service
 
-> **Kubernetes orchestrator for ephemeral lab environments with interactive WebShell access**
+> **kubernetes orchestrator for ephemeral lab environments with interactive WebShell access**
 > 
 
 [![Cloud Run](https://img.shields.io/badge/deploy-Cloud%20Run-blue)](https://cloud.google.com/run)
