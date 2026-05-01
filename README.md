@@ -717,3 +717,9 @@ This service is **functional for MVP deployment** with core pod orchestration an
 ## License
 
 Internal Altaïr Platform Service – Not licensed for external use.
+## May 2026 Security And Platform Updates
+
+- Runtime Docker image now installs only required packages with `--no-install-recommends` and runs as non-root UID `10001`.
+- `.env` is for local development only and `.env.example` documents non-secret placeholders for local mode and lab web URLs.
+- Kubernetes/GKE connection values such as cluster endpoint and CA data must come from deployment secrets or local-only environment files.
+- Latest Trivy scan status for this repo: no HIGH or CRITICAL findings.
