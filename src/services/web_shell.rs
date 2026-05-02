@@ -25,7 +25,6 @@
  *
  * @packageDocumentation
  */
-
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use k8s_openapi::api::core::v1::Pod;
@@ -34,11 +33,18 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::models::State;
 
+mod terminal_command_event_forwarding_to_sessions_ms;
+mod terminal_command_input_capture_and_redaction;
+
+use terminal_command_event_forwarding_to_sessions_ms::start_terminal_command_event_forwarder;
+use terminal_command_input_capture_and_redaction::TerminalCommandInputCapture;
+
 const DEFAULT_NAMESPACE: &str = "default";
 const BUFFER_SIZE: usize = 4096;
 
 pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) {
     let pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
+    let event_forwarder = start_terminal_command_event_forwarder(&pods, &pod_name).await;
 
     let attach_params = AttachParams {
         stdin: true,
@@ -66,9 +72,18 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) 
     let (mut ws_tx, mut ws_rx) = socket.split();
 
     let to_pod = async {
+        let mut command_capture = TerminalCommandInputCapture::default();
+
         while let Some(Ok(msg)) = ws_rx.next().await {
             match msg {
                 Message::Binary(data) => {
+                    let commands = command_capture.capture_redacted_commands(data.as_ref());
+                    if let Some(forwarder) = &event_forwarder {
+                        for command in commands {
+                            forwarder.send_redacted_command(command).await;
+                        }
+                    }
+
                     if stdin.write_all(&data).await.is_err() {
                         break;
                     }

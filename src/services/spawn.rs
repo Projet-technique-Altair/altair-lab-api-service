@@ -28,7 +28,6 @@
  *
  * @packageDocumentation
  */
-
 use std::{collections::BTreeMap, time::Duration};
 
 use axum::http::StatusCode;
@@ -184,7 +183,7 @@ async fn create_image_pull_secret(
 }
 
 fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
-    let labels = BTreeMap::from([
+    let mut labels = BTreeMap::from([
         ("app".to_string(), "altair-lab".to_string()),
         ("session_id".to_string(), payload.session_id.to_string()),
         ("runtime_id".to_string(), payload.runtime_id.to_string()),
@@ -192,6 +191,13 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
         // This keeps the future web session Service scoped to web runtimes only.
         ("runtime_kind".to_string(), payload.lab_delivery.clone()),
     ]);
+
+    if let Some(user_id) = payload.user_id {
+        labels.insert("user_id".to_string(), user_id.to_string());
+    }
+    if let Some(lab_id) = payload.lab_id {
+        labels.insert("lab_id".to_string(), lab_id.to_string());
+    }
 
     let limits = BTreeMap::from([
         ("memory".to_string(), Quantity("512Mi".into())),
@@ -419,7 +425,10 @@ async fn delete_pod_if_exists(pods: &Api<Pod>, pod_name: &str) -> bool {
 }
 
 async fn delete_service_if_exists(services: &Api<Service>, service_name: &str) -> bool {
-    match services.delete(service_name, &DeleteParams::default()).await {
+    match services
+        .delete(service_name, &DeleteParams::default())
+        .await
+    {
         Ok(_) => true,
         Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
         Err(error) => {
