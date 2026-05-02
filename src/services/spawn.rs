@@ -237,7 +237,7 @@ fn build_pod(
     payload: &SpawnRequest,
     use_image_pull_secret: bool,
 ) -> Pod {
-    let labels = BTreeMap::from([
+    let mut labels = BTreeMap::from([
         ("app".to_string(), "altair-lab".to_string()),
         ("session_id".to_string(), payload.session_id.to_string()),
         ("runtime_id".to_string(), payload.runtime_id.to_string()),
@@ -245,6 +245,13 @@ fn build_pod(
         // This keeps the future web session Service scoped to web runtimes only.
         ("runtime_kind".to_string(), payload.lab_delivery.clone()),
     ]);
+
+    if let Some(user_id) = payload.user_id {
+        labels.insert("user_id".to_string(), user_id.to_string());
+    }
+    if let Some(lab_id) = payload.lab_id {
+        labels.insert("lab_id".to_string(), lab_id.to_string());
+    }
 
     let limits = BTreeMap::from([
         ("memory".to_string(), Quantity("512Mi".into())),

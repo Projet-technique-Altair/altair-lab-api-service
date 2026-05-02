@@ -32,6 +32,8 @@ use uuid::Uuid;
 pub struct SpawnRequest {
     pub session_id: Uuid,
     pub runtime_id: Uuid,
+    pub user_id: Option<Uuid>,
+    pub lab_id: Option<Uuid>,
     pub lab_type: String,
     pub template_path: String,
     pub lab_delivery: String,
