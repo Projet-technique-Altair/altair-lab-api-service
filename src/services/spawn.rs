@@ -1,3 +1,33 @@
+/**
+ * @file spawn — Kubernetes runtime orchestration service.
+ *
+ * @remarks
+ * Implements the core logic for spawning, stopping, and checking
+ * lab runtime instances in Kubernetes.
+ *
+ * Responsibilities:
+ *
+ *  - Validate spawn requests and lab delivery modes
+ *  - Create Kubernetes Pods for lab runtimes
+ *  - Create image pull secrets for private registries
+ *  - Create ClusterIP Services for web-based labs
+ *  - Wait for Pods to become ready
+ *  - Delete runtime resources when sessions stop
+ *  - Retrieve runtime status from Kubernetes
+ *
+ * Key characteristics:
+ *
+ *  - Supports terminal and web lab delivery modes
+ *  - Splits runtimes across dedicated namespaces
+ *  - Supports local mode by skipping GCP image pull secret creation
+ *  - Enforces resource limits and runtime deadlines
+ *  - Uses Kubernetes labels to scope sessions and runtime instances
+ *
+ * This service is responsible for translating lab session requests
+ * into concrete Kubernetes resources used to run isolated lab environments.
+ *
+ * @packageDocumentation
+ */
 use std::{collections::BTreeMap, time::Duration};
 
 use axum::http::StatusCode;
@@ -192,7 +222,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
                 }),
                 volume_mounts: Some(vec![VolumeMount {
                     name: "var-log".into(),
-                    mount_path: "/var/log".into(),
+                    mount_path: "/var/log/altair".into(),
                     ..Default::default()
                 }]),
                 ..Default::default()
@@ -388,7 +418,10 @@ async fn delete_pod_if_exists(pods: &Api<Pod>, pod_name: &str) -> bool {
 }
 
 async fn delete_service_if_exists(services: &Api<Service>, service_name: &str) -> bool {
-    match services.delete(service_name, &DeleteParams::default()).await {
+    match services
+        .delete(service_name, &DeleteParams::default())
+        .await
+    {
         Ok(_) => true,
         Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
         Err(error) => {

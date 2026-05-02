@@ -1,3 +1,30 @@
+/**
+ * @file web_shell — WebSocket terminal bridge for lab runtimes.
+ *
+ * @remarks
+ * Provides a real-time interactive shell by bridging a WebSocket connection
+ * with a Kubernetes Pod exec session.
+ *
+ * Responsibilities:
+ *
+ *  - Attach to a running Pod using Kubernetes exec
+ *  - Forward WebSocket input to the Pod's stdin
+ *  - Stream Pod stdout back to the WebSocket client
+ *  - Handle bidirectional communication asynchronously
+ *
+ * Key characteristics:
+ *
+ *  - Uses TTY-enabled exec session (`/bin/bash` as student user)
+ *  - Binary WebSocket messages for efficient data transfer
+ *  - Non-blocking I/O with async streams
+ *  - Graceful shutdown on connection close or errors
+ *
+ * This module enables interactive terminal access for lab sessions,
+ * acting as a bridge between the frontend WebSocket client
+ * and the containerized lab environment.
+ *
+ * @packageDocumentation
+ */
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use k8s_openapi::api::core::v1::Pod;

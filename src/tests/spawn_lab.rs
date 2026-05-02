@@ -1,3 +1,31 @@
+/**
+ * @file spawn_lab — lab runtime orchestration tests.
+ *
+ * @remarks
+ * Tests the Kubernetes resource definitions, validation rules,
+ * runtime status helpers, and request/response models used by lab spawning.
+ *
+ * Test coverage:
+ *
+ *  - Pod metadata, labels, container configuration, resources, and volumes
+ *  - Web Service generation for web-based labs
+ *  - Namespace selection by delivery mode
+ *  - Spawn payload validation rules
+ *  - Pod readiness and failure detection
+ *  - Model serialization and deserialization
+ *  - Runtime naming conventions for Pods, secrets, and WebSocket URLs
+ *
+ * Key characteristics:
+ *
+ *  - Focuses on deterministic logic without requiring a live Kubernetes cluster
+ *  - Mirrors service-side resource construction for regression safety
+ *  - Validates both terminal and web runtime flows
+ *
+ * These tests help ensure that lab runtime objects remain compatible
+ * with the orchestration service and frontend/API expectations.
+ *
+ * @packageDocumentation
+ */
 use std::collections::BTreeMap;
 
 use k8s_openapi::api::core::v1::{
@@ -133,7 +161,7 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
                 }),
                 volume_mounts: Some(vec![VolumeMount {
                     name: "var-log".into(),
-                    mount_path: "/var/log".into(),
+                    mount_path: "/var/log/altair".into(),
                     ..Default::default()
                 }]),
                 ..Default::default()
@@ -284,7 +312,7 @@ fn test_build_pod_volumes() {
     let mounts = container.volume_mounts.as_ref().unwrap();
     assert_eq!(mounts.len(), 1);
     assert_eq!(mounts[0].name, "var-log");
-    assert_eq!(mounts[0].mount_path, "/var/log");
+    assert_eq!(mounts[0].mount_path, "/var/log/altair");
 }
 
 #[test]

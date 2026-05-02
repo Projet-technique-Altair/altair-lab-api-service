@@ -1,3 +1,30 @@
+/**
+ * @file web — HTTP route for opening web lab sessions.
+ *
+ * @remarks
+ * Handles the secure bootstrap flow used to open web-based lab runtimes.
+ *
+ * Responsibilities:
+ *
+ *  - Extract and validate the authenticated user identifier
+ *  - Query the Sessions service for the requested web runtime
+ *  - Ensure the runtime belongs to the current user
+ *  - Validate that the runtime is a running web session
+ *  - Issue a signed, short-lived HTTP-only cookie
+ *  - Return the redirect URL to the lab web proxy
+ *
+ * Key characteristics:
+ *
+ *  - Uses JWT-signed cookie claims for runtime access
+ *  - Restricts cookie scope to the lab web path
+ *  - Validates internal service URLs to avoid unsafe HTTP targets
+ *  - Supports local development through loopback-only HTTP
+ *
+ * This route protects web lab access by binding a running runtime
+ * to the authenticated user before redirecting to the web session.
+ *
+ * @packageDocumentation
+ */
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{

@@ -1,6 +1,6 @@
 # Altaïr Lab API Service
 
-> **Kubernetes orchestrator for ephemeral lab environments with interactive WebShell access**
+> **kubernetes orchestrator for ephemeral lab environments with interactive WebShell access**
 > 
 
 [![Cloud Run](https://img.shields.io/badge/deploy-Cloud%20Run-blue)](https://cloud.google.com/run)
@@ -413,11 +413,11 @@ ws.send(new TextEncoder().encode('ls -la\n'));
 | **Image** | User-provided `template_path` | Lab environment image |
 | **Resources (Requests)** | `256Mi` memory, `250m` CPU | Minimum guaranteed resources |
 | **Resources (Limits)** | `512Mi` memory, `500m` CPU | Maximum allowed resources |
-| **Volume Mount** | `/var/log` (emptyDir) | Ephemeral log storage |
+| **Volume Mount** | `/var/log/altair` (emptyDir) | Ephemeral log storage |
 
 **Volumes:**
 
-- `emptyDir` mounted at `/var/log` (deleted with pod)
+- `emptyDir` mounted at `/var/log/altair` (deleted with pod)
 
 ---
 
@@ -717,3 +717,9 @@ This service is **functional for MVP deployment** with core pod orchestration an
 ## License
 
 Internal Altaïr Platform Service – Not licensed for external use.
+## May 2026 Security And Platform Updates
+
+- Runtime Docker image now installs only required packages with `--no-install-recommends` and runs as non-root UID `10001`.
+- `.env` is for local development only and `.env.example` documents non-secret placeholders for local mode and lab web URLs.
+- Kubernetes/GKE connection values such as cluster endpoint and CA data must come from deployment secrets or local-only environment files.
+- Latest Trivy scan status for this repo: no HIGH or CRITICAL findings.

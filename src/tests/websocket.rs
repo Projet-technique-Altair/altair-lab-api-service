@@ -1,3 +1,30 @@
+/**
+ * @file websocket — WebSocket terminal bridge tests.
+ *
+ * @remarks
+ * Tests the configuration and conventions used by the WebSocket-based
+ * terminal access flow for lab runtimes.
+ *
+ * Test coverage:
+ *
+ *  - Kubernetes exec attach parameters
+ *  - Terminal buffer size and namespace constants
+ *  - Shell command format for student sessions
+ *  - Pod name compatibility with Kubernetes naming rules
+ *  - WebSocket route and URL formatting
+ *  - Expected message handling behavior
+ *
+ * Key characteristics:
+ *
+ *  - Validates terminal session assumptions without opening real sockets
+ *  - Ensures Kubernetes exec is configured for interactive TTY usage
+ *  - Confirms that binary messages are used for terminal I/O
+ *
+ * These tests help protect the WebSocket shell contract used between
+ * the frontend terminal client and the Kubernetes-backed lab container.
+ *
+ * @packageDocumentation
+ */
 use kube::api::AttachParams;
 
 // ============================================================================

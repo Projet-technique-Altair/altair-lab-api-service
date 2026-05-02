@@ -1,3 +1,32 @@
+/**
+ * @file main — application entry point.
+ *
+ * @remarks
+ * Bootstraps the Lab API service by initializing logging,
+ * application state, Kubernetes access, middleware, and HTTP routes.
+ *
+ * Responsibilities:
+ *
+ *  - Initialize structured logging (`tracing`)
+ *  - Detect local or cloud execution mode
+ *  - Initialize Kubernetes client access
+ *  - Configure GCP authentication for GKE when required
+ *  - Configure CORS middleware
+ *  - Register routes and attach shared state
+ *  - Start the HTTP server on the configured port
+ *
+ * Key characteristics:
+ *
+ *  - Supports local kubeconfig-based execution
+ *  - Supports Cloud Run → GKE access using GCP credentials
+ *  - Handles GKE endpoint and CA certificate configuration
+ *  - Uses environment-driven configuration
+ *
+ * This module wires together all service components
+ * and starts the Lab API HTTP server.
+ *
+ * @packageDocumentation
+ */
 use kube::{config::AuthInfo, Client, Config};
 use rustls_pemfile::certs;
 use std::io::BufReader;
