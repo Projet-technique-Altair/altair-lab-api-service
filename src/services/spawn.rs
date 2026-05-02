@@ -28,7 +28,6 @@
  *
  * @packageDocumentation
  */
-
 use std::{collections::BTreeMap, time::Duration};
 
 use axum::http::StatusCode;
@@ -419,7 +418,10 @@ async fn delete_pod_if_exists(pods: &Api<Pod>, pod_name: &str) -> bool {
 }
 
 async fn delete_service_if_exists(services: &Api<Service>, service_name: &str) -> bool {
-    match services.delete(service_name, &DeleteParams::default()).await {
+    match services
+        .delete(service_name, &DeleteParams::default())
+        .await
+    {
         Ok(_) => true,
         Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
         Err(error) => {

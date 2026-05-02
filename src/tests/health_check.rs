@@ -21,7 +21,6 @@
  *
  * @packageDocumentation
  */
-
 use crate::routes::health;
 
 #[tokio::test]

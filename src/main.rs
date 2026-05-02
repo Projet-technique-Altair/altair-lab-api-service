@@ -27,7 +27,6 @@
  *
  * @packageDocumentation
  */
-
 use kube::{config::AuthInfo, Client, Config};
 use rustls_pemfile::certs;
 use std::io::BufReader;

@@ -25,7 +25,6 @@
  *
  * @packageDocumentation
  */
-
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -33,8 +32,8 @@ use uuid::Uuid;
 pub struct SpawnRequest {
     pub session_id: Uuid,
     pub runtime_id: Uuid,
-    pub lab_type: String,      
-    pub template_path: String, 
+    pub lab_type: String,
+    pub template_path: String,
     pub lab_delivery: String,
     pub app_port: Option<i32>,
 }

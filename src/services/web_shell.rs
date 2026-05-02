@@ -25,7 +25,6 @@
  *
  * @packageDocumentation
  */
-
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use k8s_openapi::api::core::v1::Pod;

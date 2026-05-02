@@ -25,7 +25,6 @@
  *
  * @packageDocumentation
  */
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use axum::{

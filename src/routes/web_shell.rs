@@ -20,7 +20,6 @@
  *
  * @packageDocumentation
  */
-
 use axum::{
     extract::{ws::WebSocketUpgrade, Path, State},
     response::IntoResponse,

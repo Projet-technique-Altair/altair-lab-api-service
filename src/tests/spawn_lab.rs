@@ -26,7 +26,6 @@
  *
  * @packageDocumentation
  */
-
 use std::collections::BTreeMap;
 
 use k8s_openapi::api::core::v1::{

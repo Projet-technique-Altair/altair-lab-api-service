@@ -22,7 +22,6 @@
  *
  * @packageDocumentation
  */
-
 use std::sync::Arc;
 
 use gcp_auth::TokenProvider;
