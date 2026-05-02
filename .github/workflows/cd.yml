@@ -1,9 +1,16 @@
 name: Lab API Service CD
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
     branches: [main]
   workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Tag de l'image a redeployer manuellement (sha ou vN)"
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -11,6 +18,7 @@ permissions:
 
 jobs:
   deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     uses: Projet-technique-Altair/altair-ci/.github/workflows/microservices-cd.yml@main
     with:
       gcp_project_id: ${{ vars.GCP_PROJECT_ID }}
@@ -22,10 +30,7 @@ jobs:
 
       service_name: altair-lab-api-service
       image_name: altair-lab-api-service
-
-      workdir: .
-      dockerfile: Dockerfile
-      platform: linux/amd64
+      image_tag: ${{ github.event_name == 'workflow_dispatch' && inputs.image_tag || '' }}
 
       # This service keeps the control-plane configuration:
       # GKE endpoint, cluster CA, sessions-ms lookup, webshell URL, LAB-WEB cookie signing.
