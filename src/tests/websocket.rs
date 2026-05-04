@@ -87,23 +87,33 @@ fn test_namespace_constant() {
 
 #[test]
 fn test_shell_command_format() {
-    let command = ["/bin/bash", "-lc", "exec su - student"];
+    let command = [
+        "/bin/sh",
+        "-lc",
+        r#"USER_NAME="$(id -un 2>/dev/null || echo uid-$(id -u 2>/dev/null || echo unknown))"
+if command -v bash >/dev/null 2>&1; then
+  exec bash --noprofile --norc -i
+fi
+exec sh -i"#,
+    ];
 
     assert_eq!(command.len(), 3);
-    assert_eq!(command[0], "/bin/bash");
+    assert_eq!(command[0], "/bin/sh");
     assert_eq!(command[1], "-lc");
-    assert!(command[2].contains("su"));
-    assert!(command[2].contains("student"));
+    assert!(command[2].contains("id -un"));
+    assert!(command[2].contains("exec bash"));
+    assert!(command[2].contains("exec sh -i"));
+    assert!(!command[2].contains("su - student"));
 }
 
 #[test]
 fn test_shell_command_uses_login_shell() {
-    let command = ["/bin/bash", "-lc", "exec su - student"];
+    let command = ["/bin/sh", "-lc", "exec bash --noprofile --norc -i"];
 
-    // -l flag ensures login shell (loads profile)
-    assert!(command[1].contains('l'));
-    // -c flag allows passing command string
-    assert!(command[1].contains('c'));
+    assert_eq!(command[0], "/bin/sh");
+    assert_eq!(command[1], "-lc");
+    assert!(command[2].contains("--noprofile"));
+    assert!(command[2].contains("--norc"));
 }
 
 // ============================================================================
