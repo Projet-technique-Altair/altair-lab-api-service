@@ -638,7 +638,7 @@ fn test_spawn_response_serialize() {
         data: SpawnResponseData {
             session_id: Uuid::nil(),
             container_id: "ctf-session-123".to_string(),
-            status: "RUNNING".to_string(),
+            status: "running".to_string(),
             runtime_kind: "terminal".to_string(),
             webshell_url: Some(
                 "ws://lab-api-service:8080/spawn/webshell/ctf-session-123".to_string(),
@@ -650,7 +650,7 @@ fn test_spawn_response_serialize() {
     let json = serde_json::to_string(&response).unwrap();
     assert!(json.contains(r#""success":true"#));
     assert!(json.contains(r#""container_id":"ctf-session-123""#));
-    assert!(json.contains(r#""status":"RUNNING""#));
+    assert!(json.contains(r#""status":"running""#));
     assert!(json.contains(r#""runtime_kind":"terminal""#));
     assert!(json.contains(r#""webshell_url""#));
 }
@@ -670,11 +670,11 @@ fn test_stop_response_serialize() {
     use crate::models::StopResponse;
 
     let response = StopResponse {
-        status: "Stopped".to_string(),
+        status: "stopped".to_string(),
     };
 
     let json = serde_json::to_string(&response).unwrap();
-    assert!(json.contains(r#""status":"Stopped""#));
+    assert!(json.contains(r#""status":"stopped""#));
 }
 
 #[test]
@@ -682,11 +682,11 @@ fn test_status_response_serialize() {
     use crate::models::StatusResponse;
 
     let response = StatusResponse {
-        status: "Running".to_string(),
+        status: "running".to_string(),
     };
 
     let json = serde_json::to_string(&response).unwrap();
-    assert!(json.contains(r#""status":"Running""#));
+    assert!(json.contains(r#""status":"running""#));
 }
 
 fn is_valid_lab_type(lab_type: &str) -> bool {

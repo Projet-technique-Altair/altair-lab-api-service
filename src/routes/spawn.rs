@@ -90,7 +90,7 @@ pub async fn spawn_lab(
             runtime_kind,
             webshell_url,
             app_url,
-            status: "RUNNING".to_string(),
+            status: "running".to_string(),
         },
     }))
 }
@@ -102,7 +102,7 @@ pub async fn stop_lab(
     spawn::delete_lab(state, payload.container_id).await;
 
     Json(StopResponse {
-        status: "Stopped".to_string(),
+        status: "stopped".to_string(),
     })
 }
 
