@@ -38,7 +38,7 @@ use crate::models::State;
 
 const DEFAULT_NAMESPACE: &str = "default";
 const BUFFER_SIZE: usize = 4096;
-const WEBSHELL_COMMAND: &str = r#"
+const WEBSHELL_COMMAND: &str = r##"
 USER_NAME="$(id -un 2>/dev/null || echo uid-$(id -u 2>/dev/null || echo unknown))"
 
 if [ "$(id -u 2>/dev/null || echo 1)" = "0" ]; then
@@ -56,7 +56,7 @@ fi
 
 export PS1="${USER_NAME}@altair:\${PWD}${PROMPT_CHAR} "
 exec sh -i
-"#;
+"##;
 
 pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) {
     let namespace = terminal_namespace();
