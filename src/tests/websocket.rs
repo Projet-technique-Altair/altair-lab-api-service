@@ -36,14 +36,14 @@ fn test_attach_params_configuration() {
     let attach_params = AttachParams {
         stdin: true,
         stdout: true,
-        stderr: true,
+        stderr: false,
         tty: true,
         ..Default::default()
     };
 
     assert!(attach_params.stdin);
     assert!(attach_params.stdout);
-    assert!(attach_params.stderr);
+    assert!(!attach_params.stderr);
     assert!(attach_params.tty);
 }
 
@@ -52,7 +52,7 @@ fn test_attach_params_default_container() {
     let attach_params = AttachParams {
         stdin: true,
         stdout: true,
-        stderr: true,
+        stderr: false,
         tty: true,
         ..Default::default()
     };

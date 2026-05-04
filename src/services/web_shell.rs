@@ -65,7 +65,7 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) 
     let attach_params = AttachParams {
         stdin: true,
         stdout: true,
-        stderr: true,
+        stderr: false,
         tty: true,
         ..Default::default()
     };
