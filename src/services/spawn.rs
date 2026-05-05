@@ -47,7 +47,7 @@ use kube::{
     Api,
 };
 use tokio::time::timeout;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use crate::models::{SpawnRequest, State};
 
@@ -57,6 +57,30 @@ const WEB_NAMESPACE: &str = "labs-web";
 const POD_TIMEOUT_SECS: u64 = 30;
 const POD_DEADLINE_SECS: i64 = 7200;
 const WEB_SERVICE_PORT: i32 = 80;
+const LAB_CONTAINER_NAME: &str = "lab-container";
+const TERMINAL_KEEPALIVE_SCRIPT: &str = r#"
+if [ -x /opt/altair/startup.sh ]; then
+  /opt/altair/startup.sh || true
+fi
+
+echo "[altair] runtime user: $(id 2>/dev/null || true)" >&2
+
+trap 'exit 0' TERM INT
+while true; do
+  sleep 3600
+done
+"#;
+
+#[derive(Debug, Clone, Default)]
+struct PodDiagnostics {
+    phase: Option<String>,
+    normalized_status: String,
+    ready: bool,
+    container_state: Option<String>,
+    reason: Option<String>,
+    message: Option<String>,
+    exit_code: Option<i32>,
+}
 
 pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, StatusCode> {
     if !is_valid_lab_type(&payload.lab_type) {
@@ -68,35 +92,60 @@ pub async fn spawn_lab(state: State, payload: SpawnRequest) -> Result<String, St
 
     let client = &state.kube_client;
     let namespace = namespace_for_delivery(&payload.lab_delivery);
-    let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
-    let secrets: Api<Secret> = Api::namespaced(client.clone(), namespace);
-    let services: Api<Service> = Api::namespaced(client.clone(), namespace);
+    let pods: Api<Pod> = Api::namespaced(client.clone(), &namespace);
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), &namespace);
+    let services: Api<Service> = Api::namespaced(client.clone(), &namespace);
 
     // Runtime ids scope infra names so one session can cycle through multiple Pods.
     let pod_name = format!("ctf-runtime-{}", payload.runtime_id);
     let secret_name = format!("gcr-secret-{}", payload.runtime_id);
+    let use_image_pull_secret = !state.local_mode;
+
+    info!(
+        session_id = %payload.session_id,
+        runtime_id = %payload.runtime_id,
+        namespace = %namespace,
+        pod_name = %pod_name,
+        lab_delivery = %payload.lab_delivery,
+        lab_type = %payload.lab_type,
+        image = %payload.template_path,
+        app_port = ?payload.app_port,
+        action = "create_pod",
+        "spawning lab runtime"
+    );
 
     if state.local_mode {
-        info!("Local mode enabled: skipping GCP image pull secret creation");
+        info!(
+            namespace = %namespace,
+            pod_name = %pod_name,
+            "Local mode enabled: skipping GCP image pull secret creation"
+        );
     } else {
         create_image_pull_secret(&state, &secrets, &secret_name, &payload.template_path).await?;
     }
 
-    let pod = build_pod(&pod_name, &secret_name, &payload);
+    let pod = build_pod(&pod_name, &secret_name, &payload, use_image_pull_secret);
     pods.create(&PostParams::default(), &pod)
         .await
         .map_err(|e| {
-            error!("Failed to create pod: {:?}", e);
+            error!(
+                namespace = %namespace,
+                pod_name = %pod_name,
+                lab_delivery = %payload.lab_delivery,
+                error = ?e,
+                action = "create_pod",
+                "failed to create lab pod"
+            );
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     // Web labs need a stable in-cluster Service before the future web proxy can
     // forward requests to the Pod without depending on an ephemeral Pod IP.
     if payload.lab_delivery == "web" {
-        create_web_session_service(&services, &pod_name, &payload).await?;
+        create_web_session_service(&services, &pod_name, &payload, &namespace).await?;
     }
 
-    wait_for_pod_ready(&pods, &pod_name).await
+    wait_for_pod_ready(&pods, &pod_name, &payload, &namespace).await
 }
 
 fn is_valid_lab_type(lab_type: &str) -> bool {
@@ -122,11 +171,11 @@ fn is_valid_app_port(app_port: i32) -> bool {
     (1..=65535).contains(&app_port)
 }
 
-fn namespace_for_delivery(lab_delivery: &str) -> &'static str {
+fn namespace_for_delivery(lab_delivery: &str) -> String {
     if lab_delivery == "web" {
-        WEB_NAMESPACE
+        std::env::var("LAB_WEB_NAMESPACE").unwrap_or_else(|_| WEB_NAMESPACE.to_string())
     } else {
-        DEFAULT_NAMESPACE
+        std::env::var("LAB_TERMINAL_NAMESPACE").unwrap_or_else(|_| DEFAULT_NAMESPACE.to_string())
     }
 }
 
@@ -146,7 +195,7 @@ async fn create_image_pull_secret(
     })?;
 
     let token = provider.token(GCP_SCOPE).await.map_err(|e| {
-        error!("Failed to get GCP token: {:?}", e);
+        error!(error = ?e, "Failed to get GCP token");
         StatusCode::INTERNAL_SERVER_ERROR
     })?;
 
@@ -175,14 +224,19 @@ async fn create_image_pull_secret(
         .create(&PostParams::default(), &secret)
         .await
         .map_err(|e| {
-            error!("Failed to create image pull secret: {:?}", e);
+            error!(secret_name = %secret_name, error = ?e, "Failed to create image pull secret");
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     Ok(())
 }
 
-fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
+fn build_pod(
+    pod_name: &str,
+    secret_name: &str,
+    payload: &SpawnRequest,
+    use_image_pull_secret: bool,
+) -> Pod {
     let labels = BTreeMap::from([
         ("app".to_string(), "altair-lab".to_string()),
         ("session_id".to_string(), payload.session_id.to_string()),
@@ -202,6 +256,8 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
         ("cpu".to_string(), Quantity("250m".into())),
     ]);
 
+    let is_terminal = payload.lab_delivery == "terminal";
+
     Pod {
         metadata: kube::core::ObjectMeta {
             name: Some(pod_name.to_string()),
@@ -209,12 +265,18 @@ fn build_pod(pod_name: &str, secret_name: &str, payload: &SpawnRequest) -> Pod {
             ..Default::default()
         },
         spec: Some(PodSpec {
-            image_pull_secrets: Some(vec![LocalObjectReference {
-                name: secret_name.to_string(),
-            }]),
+            image_pull_secrets: if use_image_pull_secret {
+                Some(vec![LocalObjectReference {
+                    name: secret_name.to_string(),
+                }])
+            } else {
+                None
+            },
             containers: vec![Container {
-                name: "lab-container".into(),
+                name: LAB_CONTAINER_NAME.into(),
                 image: Some(payload.template_path.clone()),
+                command: is_terminal.then(|| vec!["/bin/sh".to_string(), "-lc".to_string()]),
+                args: is_terminal.then(|| vec![TERMINAL_KEEPALIVE_SCRIPT.to_string()]),
                 resources: Some(ResourceRequirements {
                     limits: Some(limits),
                     requests: Some(requests),
@@ -271,6 +333,7 @@ async fn create_web_session_service(
     services: &Api<Service>,
     pod_name: &str,
     payload: &SpawnRequest,
+    namespace: &str,
 ) -> Result<(), StatusCode> {
     let service_name = build_web_service_name(pod_name);
     let service = build_web_service(pod_name, payload);
@@ -282,20 +345,38 @@ async fn create_web_session_service(
         .create(&PostParams::default(), &service)
         .await
         .map_err(|e| {
-            error!("Failed to create web session service: {:?}", e);
+            error!(
+                namespace = %namespace,
+                pod_name = %pod_name,
+                service_name = %service_name,
+                error = ?e,
+                action = "create_web_service",
+                "failed to create web session service"
+            );
             StatusCode::INTERNAL_SERVER_ERROR
         })?;
 
     Ok(())
 }
 
-async fn wait_for_pod_ready(pods: &Api<Pod>, pod_name: &str) -> Result<String, StatusCode> {
+async fn wait_for_pod_ready(
+    pods: &Api<Pod>,
+    pod_name: &str,
+    payload: &SpawnRequest,
+    namespace: &str,
+) -> Result<String, StatusCode> {
     let wp = WatchParams::default().fields(&format!("metadata.name={}", pod_name));
     let mut watcher = pods
         .watch(&wp, "0")
         .await
         .map_err(|e| {
-            error!("Failed to watch pod: {:?}", e);
+            error!(
+                namespace = %namespace,
+                pod_name = %pod_name,
+                error = ?e,
+                action = "wait_ready",
+                "failed to watch pod"
+            );
             StatusCode::INTERNAL_SERVER_ERROR
         })?
         .boxed();
@@ -304,15 +385,66 @@ async fn wait_for_pod_ready(pods: &Api<Pod>, pod_name: &str) -> Result<String, S
         while let Some(event) = watcher.next().await {
             let pod = match event {
                 Ok(kube::api::WatchEvent::Added(p) | kube::api::WatchEvent::Modified(p)) => p,
-                _ => continue,
+                Ok(_) => continue,
+                Err(e) => {
+                    error!(
+                        namespace = %namespace,
+                        pod_name = %pod_name,
+                        error = ?e,
+                        action = "wait_ready",
+                        "pod watch event failed"
+                    );
+                    return Err(StatusCode::INTERNAL_SERVER_ERROR);
+                }
             };
 
-            if is_pod_ready(&pod) {
+            let diagnostics = pod_diagnostics(&pod);
+
+            if diagnostics.ready {
+                info!(
+                    session_id = %payload.session_id,
+                    runtime_id = %payload.runtime_id,
+                    namespace = %namespace,
+                    pod_name = %pod_name,
+                    phase = ?diagnostics.phase,
+                    status = %diagnostics.normalized_status,
+                    action = "wait_ready",
+                    "lab pod is ready"
+                );
                 return Ok(());
             }
+
+            if is_fatal_waiting_reason(&diagnostics) {
+                log_pod_diagnostics(
+                    "lab pod is waiting with a fatal reason before becoming ready",
+                    payload,
+                    namespace,
+                    pod_name,
+                    &diagnostics,
+                );
+                return Err(StatusCode::BAD_GATEWAY);
+            }
+
             if is_pod_failed(&pod) {
-                error!("Pod {} failed to start", pod_name);
+                log_pod_diagnostics(
+                    "lab pod failed before becoming ready",
+                    payload,
+                    namespace,
+                    pod_name,
+                    &diagnostics,
+                );
                 return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+
+            if is_pod_completed(&pod) {
+                log_pod_diagnostics(
+                    "lab pod completed before becoming ready",
+                    payload,
+                    namespace,
+                    pod_name,
+                    &diagnostics,
+                );
+                return Err(StatusCode::CONFLICT);
             }
         }
         Err(StatusCode::REQUEST_TIMEOUT)
@@ -323,10 +455,118 @@ async fn wait_for_pod_ready(pods: &Api<Pod>, pod_name: &str) -> Result<String, S
         Ok(Ok(())) => Ok(pod_name.to_string()),
         Ok(Err(status)) => Err(status),
         Err(_) => {
-            error!("Timeout waiting for pod {} to become ready", pod_name);
+            error!(
+                session_id = %payload.session_id,
+                runtime_id = %payload.runtime_id,
+                namespace = %namespace,
+                pod_name = %pod_name,
+                lab_delivery = %payload.lab_delivery,
+                action = "wait_ready",
+                timeout_secs = POD_TIMEOUT_SECS,
+                "timeout waiting for pod to become ready"
+            );
             Err(StatusCode::REQUEST_TIMEOUT)
         }
     }
+}
+
+fn pod_diagnostics(pod: &Pod) -> PodDiagnostics {
+    let Some(status) = &pod.status else {
+        return PodDiagnostics {
+            normalized_status: "unknown".to_string(),
+            ..Default::default()
+        };
+    };
+
+    let ready = is_pod_ready(pod);
+    let mut diagnostics = PodDiagnostics {
+        phase: status.phase.clone(),
+        normalized_status: normalize_pod_phase(status.phase.as_deref()).to_string(),
+        ready,
+        ..Default::default()
+    };
+
+    let Some(container_status) = status.container_statuses.as_ref().and_then(|statuses| {
+        statuses
+            .iter()
+            .find(|cs| cs.name == LAB_CONTAINER_NAME)
+            .or_else(|| statuses.first())
+    }) else {
+        return diagnostics;
+    };
+
+    let Some(container_state) = &container_status.state else {
+        return diagnostics;
+    };
+
+    if let Some(waiting) = &container_state.waiting {
+        diagnostics.container_state = Some("waiting".to_string());
+        diagnostics.reason = waiting.reason.clone();
+        diagnostics.message = waiting.message.clone();
+    } else if let Some(running) = &container_state.running {
+        diagnostics.container_state = Some("running".to_string());
+        diagnostics.message = running
+            .started_at
+            .as_ref()
+            .map(|_| "container started".to_string());
+    } else if let Some(terminated) = &container_state.terminated {
+        diagnostics.container_state = Some("terminated".to_string());
+        diagnostics.reason = terminated.reason.clone();
+        diagnostics.message = terminated.message.clone();
+        diagnostics.exit_code = Some(terminated.exit_code);
+    }
+
+    diagnostics
+}
+
+fn normalize_pod_phase(phase: Option<&str>) -> &'static str {
+    match phase {
+        Some("Pending") => "starting",
+        Some("Running") => "running",
+        Some("Succeeded") => "completed",
+        Some("Failed") => "failed",
+        _ => "unknown",
+    }
+}
+
+fn is_fatal_waiting_reason(diagnostics: &PodDiagnostics) -> bool {
+    matches!(
+        diagnostics.reason.as_deref(),
+        Some("ErrImagePull")
+            | Some("ImagePullBackOff")
+            | Some("CreateContainerConfigError")
+            | Some("RunContainerError")
+            | Some("InvalidImageName")
+            | Some("CrashLoopBackOff")
+    )
+}
+
+fn log_pod_diagnostics(
+    message: &str,
+    payload: &SpawnRequest,
+    namespace: &str,
+    pod_name: &str,
+    diagnostics: &PodDiagnostics,
+) {
+    error!(
+        session_id = %payload.session_id,
+        runtime_id = %payload.runtime_id,
+        lab_delivery = %payload.lab_delivery,
+        lab_type = %payload.lab_type,
+        namespace = %namespace,
+        pod_name = %pod_name,
+        image = %payload.template_path,
+        phase = ?diagnostics.phase,
+        status = %diagnostics.normalized_status,
+        ready = diagnostics.ready,
+        container_state = ?diagnostics.container_state,
+        reason = ?diagnostics.reason,
+        k8s_message = ?diagnostics.message,
+        exit_code = ?diagnostics.exit_code,
+        action = "wait_ready",
+        "{}",
+        message
+    );
 }
 
 fn is_pod_ready(pod: &Pod) -> bool {
@@ -339,23 +579,6 @@ fn is_pod_ready(pod: &Pod) -> bool {
         .container_statuses
         .as_ref()
         .is_some_and(|s| !s.is_empty() && s.iter().all(|cs| cs.ready));
-
-    // Log container status for debugging
-    if let Some(statuses) = &status.container_statuses {
-        for cs in statuses {
-            let Some(state) = &cs.state else { continue };
-
-            if let Some(waiting) = &state.waiting {
-                info!("Container {} waiting: {:?}", cs.name, waiting.reason);
-            }
-            if let Some(terminated) = &state.terminated {
-                error!(
-                    "Container {} terminated: reason={:?}, exit_code={}, message={:?}",
-                    cs.name, terminated.reason, terminated.exit_code, terminated.message
-                );
-            }
-        }
-    }
 
     phase_running && containers_ready
 }
@@ -379,45 +602,65 @@ fn is_pod_failed(pod: &Pod) -> bool {
     phase_failed || container_failed
 }
 
+fn is_pod_completed(pod: &Pod) -> bool {
+    pod.status
+        .as_ref()
+        .and_then(|status| status.phase.as_deref())
+        == Some("Succeeded")
+}
+
 pub async fn delete_lab(state: State, pod_name: String) {
     // Stop requests only carry the container_id, so deletion checks both runtime
     // namespaces and always cleans the derived web Service name as well.
-    let default_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
-    let web_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), WEB_NAMESPACE);
-    let web_services: Api<Service> = Api::namespaced(state.kube_client.clone(), WEB_NAMESPACE);
+    let terminal_namespace = namespace_for_delivery("terminal");
+    let web_namespace = namespace_for_delivery("web");
+    let terminal_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), &terminal_namespace);
+    let web_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), &web_namespace);
+    let web_services: Api<Service> = Api::namespaced(state.kube_client.clone(), &web_namespace);
 
-    let _ = delete_pod_if_exists(&default_pods, &pod_name).await;
-    let _ = delete_pod_if_exists(&web_pods, &pod_name).await;
-    let _ = delete_service_if_exists(&web_services, &build_web_service_name(&pod_name)).await;
+    let _ = delete_pod_if_exists(&terminal_pods, &pod_name, &terminal_namespace).await;
+    let _ = delete_pod_if_exists(&web_pods, &pod_name, &web_namespace).await;
+    let _ = delete_service_if_exists(
+        &web_services,
+        &build_web_service_name(&pod_name),
+        &web_namespace,
+    )
+    .await;
 }
 
 pub async fn status_lab(state: State, pod_name: String) -> String {
-    // Status checks follow the same namespace split as stop: terminal in default,
-    // web in labs-web.
-    let default_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), DEFAULT_NAMESPACE);
-    let web_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), WEB_NAMESPACE);
+    // Status checks follow the same namespace split as stop: terminal in the
+    // terminal namespace, web in the web namespace.
+    let terminal_namespace = namespace_for_delivery("terminal");
+    let web_namespace = namespace_for_delivery("web");
+    let terminal_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), &terminal_namespace);
+    let web_pods: Api<Pod> = Api::namespaced(state.kube_client.clone(), &web_namespace);
 
-    if let Some(status) = get_pod_phase(&default_pods, &pod_name).await {
+    if let Some(status) = get_pod_status(&terminal_pods, &pod_name, &terminal_namespace).await {
         return status;
     }
 
-    get_pod_phase(&web_pods, &pod_name)
+    get_pod_status(&web_pods, &pod_name, &web_namespace)
         .await
-        .unwrap_or_else(|| "Unknown".to_string())
+        .unwrap_or_else(|| "unknown".to_string())
 }
 
-async fn delete_pod_if_exists(pods: &Api<Pod>, pod_name: &str) -> bool {
+async fn delete_pod_if_exists(pods: &Api<Pod>, pod_name: &str, namespace: &str) -> bool {
     match pods.delete(pod_name, &DeleteParams::default()).await {
         Ok(_) => true,
         Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
         Err(error) => {
-            error!("Failed to delete pod {}: {:?}", pod_name, error);
+            error!(namespace = %namespace, pod_name = %pod_name, error = ?error, "Failed to delete pod");
             false
         }
     }
 }
 
-async fn delete_service_if_exists(services: &Api<Service>, service_name: &str) -> bool {
+async fn delete_service_if_exists(
+    services: &Api<Service>,
+    service_name: &str,
+    namespace: &str,
+) -> bool {
     match services
         .delete(service_name, &DeleteParams::default())
         .await
@@ -425,22 +668,104 @@ async fn delete_service_if_exists(services: &Api<Service>, service_name: &str) -
         Ok(_) => true,
         Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
         Err(error) => {
-            error!("Failed to delete service {}: {:?}", service_name, error);
+            error!(namespace = %namespace, service_name = %service_name, error = ?error, "Failed to delete service");
             false
         }
     }
 }
 
-async fn get_pod_phase(pods: &Api<Pod>, pod_name: &str) -> Option<String> {
+async fn get_pod_status(pods: &Api<Pod>, pod_name: &str, namespace: &str) -> Option<String> {
     match pods.get(pod_name).await {
-        Ok(pod) => pod
-            .status
-            .and_then(|s| s.phase)
-            .or_else(|| Some("Unknown".to_string())),
+        Ok(pod) => {
+            let diagnostics = pod_diagnostics(&pod);
+            if diagnostics.container_state == Some("terminated".to_string())
+                || diagnostics.reason.is_some()
+                || diagnostics.normalized_status == "failed"
+                || diagnostics.normalized_status == "completed"
+            {
+                warn!(
+                    namespace = %namespace,
+                    pod_name = %pod_name,
+                    phase = ?diagnostics.phase,
+                    status = %diagnostics.normalized_status,
+                    ready = diagnostics.ready,
+                    container_state = ?diagnostics.container_state,
+                    reason = ?diagnostics.reason,
+                    k8s_message = ?diagnostics.message,
+                    exit_code = ?diagnostics.exit_code,
+                    action = "status_check",
+                    "lab pod status contains diagnostic details"
+                );
+            }
+            Some(diagnostics.normalized_status)
+        }
         Err(kube::Error::Api(api_error)) if api_error.code == 404 => None,
         Err(error) => {
-            error!("Failed to get pod {}: {:?}", pod_name, error);
-            Some("Unknown".to_string())
+            error!(namespace = %namespace, pod_name = %pod_name, error = ?error, "Failed to get pod status");
+            Some("unknown".to_string())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{build_pod, normalize_pod_phase, TERMINAL_KEEPALIVE_SCRIPT};
+    use crate::models::SpawnRequest;
+    use uuid::Uuid;
+
+    fn terminal_spawn_request() -> SpawnRequest {
+        SpawnRequest {
+            session_id: Uuid::new_v4(),
+            runtime_id: Uuid::new_v4(),
+            lab_type: "guided_terminal".to_string(),
+            template_path: "example.test/lab:latest".to_string(),
+            lab_delivery: "terminal".to_string(),
+            app_port: None,
+        }
+    }
+
+    #[test]
+    fn terminal_pod_uses_altair_keepalive_command() {
+        let payload = terminal_spawn_request();
+        let pod = build_pod("test-pod", "test-secret", &payload, true);
+        let container = &pod.spec.unwrap().containers[0];
+
+        assert_eq!(
+            container.command,
+            Some(vec!["/bin/sh".to_string(), "-lc".to_string()])
+        );
+        assert_eq!(
+            container.args,
+            Some(vec![TERMINAL_KEEPALIVE_SCRIPT.to_string()])
+        );
+    }
+
+    #[test]
+    fn web_pod_keeps_image_cmd_or_entrypoint() {
+        let mut payload = terminal_spawn_request();
+        payload.lab_delivery = "web".to_string();
+        payload.app_port = Some(3000);
+        let pod = build_pod("test-pod", "test-secret", &payload, true);
+        let container = &pod.spec.unwrap().containers[0];
+
+        assert!(container.command.is_none());
+        assert!(container.args.is_none());
+    }
+
+    #[test]
+    fn local_mode_does_not_reference_image_pull_secret() {
+        let payload = terminal_spawn_request();
+        let pod = build_pod("test-pod", "test-secret", &payload, false);
+
+        assert!(pod.spec.unwrap().image_pull_secrets.is_none());
+    }
+
+    #[test]
+    fn pod_phase_is_normalized_for_public_status() {
+        assert_eq!(normalize_pod_phase(Some("Pending")), "starting");
+        assert_eq!(normalize_pod_phase(Some("Running")), "running");
+        assert_eq!(normalize_pod_phase(Some("Succeeded")), "completed");
+        assert_eq!(normalize_pod_phase(Some("Failed")), "failed");
+        assert_eq!(normalize_pod_phase(None), "unknown");
     }
 }
