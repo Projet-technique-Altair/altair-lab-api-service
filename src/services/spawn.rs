@@ -338,7 +338,9 @@ async fn create_web_session_service(
     let service_name = build_web_service_name(pod_name);
     let service = build_web_service(pod_name, payload);
 
-    let _ = services.delete(&service_name, &DeleteParams::default()).await;
+    let _ = services
+        .delete(&service_name, &DeleteParams::default())
+        .await;
     services
         .create(&PostParams::default(), &service)
         .await
@@ -484,11 +486,12 @@ fn pod_diagnostics(pod: &Pod) -> PodDiagnostics {
         ..Default::default()
     };
 
-    let Some(container_status) = status
-        .container_statuses
-        .as_ref()
-        .and_then(|statuses| statuses.iter().find(|cs| cs.name == LAB_CONTAINER_NAME).or_else(|| statuses.first()))
-    else {
+    let Some(container_status) = status.container_statuses.as_ref().and_then(|statuses| {
+        statuses
+            .iter()
+            .find(|cs| cs.name == LAB_CONTAINER_NAME)
+            .or_else(|| statuses.first())
+    }) else {
         return diagnostics;
     };
 
@@ -502,7 +505,10 @@ fn pod_diagnostics(pod: &Pod) -> PodDiagnostics {
         diagnostics.message = waiting.message.clone();
     } else if let Some(running) = &container_state.running {
         diagnostics.container_state = Some("running".to_string());
-        diagnostics.message = running.started_at.as_ref().map(|_| "container started".to_string());
+        diagnostics.message = running
+            .started_at
+            .as_ref()
+            .map(|_| "container started".to_string());
     } else if let Some(terminated) = &container_state.terminated {
         diagnostics.container_state = Some("terminated".to_string());
         diagnostics.reason = terminated.reason.clone();
@@ -614,7 +620,12 @@ pub async fn delete_lab(state: State, pod_name: String) {
 
     let _ = delete_pod_if_exists(&terminal_pods, &pod_name, &terminal_namespace).await;
     let _ = delete_pod_if_exists(&web_pods, &pod_name, &web_namespace).await;
-    let _ = delete_service_if_exists(&web_services, &build_web_service_name(&pod_name), &web_namespace).await;
+    let _ = delete_service_if_exists(
+        &web_services,
+        &build_web_service_name(&pod_name),
+        &web_namespace,
+    )
+    .await;
 }
 
 pub async fn status_lab(state: State, pod_name: String) -> String {
@@ -645,8 +656,15 @@ async fn delete_pod_if_exists(pods: &Api<Pod>, pod_name: &str, namespace: &str) 
     }
 }
 
-async fn delete_service_if_exists(services: &Api<Service>, service_name: &str, namespace: &str) -> bool {
-    match services.delete(service_name, &DeleteParams::default()).await {
+async fn delete_service_if_exists(
+    services: &Api<Service>,
+    service_name: &str,
+    namespace: &str,
+) -> bool {
+    match services
+        .delete(service_name, &DeleteParams::default())
+        .await
+    {
         Ok(_) => true,
         Err(kube::Error::Api(api_error)) if api_error.code == 404 => false,
         Err(error) => {
@@ -712,8 +730,14 @@ mod tests {
         let pod = build_pod("test-pod", "test-secret", &payload, true);
         let container = &pod.spec.unwrap().containers[0];
 
-        assert_eq!(container.command, Some(vec!["/bin/sh".to_string(), "-lc".to_string()]));
-        assert_eq!(container.args, Some(vec![TERMINAL_KEEPALIVE_SCRIPT.to_string()]));
+        assert_eq!(
+            container.command,
+            Some(vec!["/bin/sh".to_string(), "-lc".to_string()])
+        );
+        assert_eq!(
+            container.args,
+            Some(vec![TERMINAL_KEEPALIVE_SCRIPT.to_string()])
+        );
     }
 
     #[test]
