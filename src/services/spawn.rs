@@ -35,8 +35,8 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use futures::StreamExt;
 use k8s_openapi::{
     api::core::v1::{
-        Container, EmptyDirVolumeSource, LocalObjectReference, Pod, PodSpec, ResourceRequirements,
-        Secret, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
+        Container, EmptyDirVolumeSource, EnvVar, LocalObjectReference, Pod, PodSpec,
+        ResourceRequirements, Secret, Service, ServicePort, ServiceSpec, Volume, VolumeMount,
     },
     apimachinery::pkg::api::resource::Quantity,
     apimachinery::pkg::util::intstr::IntOrString,
@@ -284,6 +284,7 @@ fn build_pod(
                 image: Some(payload.template_path.clone()),
                 command: is_terminal.then(|| vec!["/bin/sh".to_string(), "-lc".to_string()]),
                 args: is_terminal.then(|| vec![TERMINAL_KEEPALIVE_SCRIPT.to_string()]),
+                env: Some(build_session_flag_env(payload)),
                 resources: Some(ResourceRequirements {
                     limits: Some(limits),
                     requests: Some(requests),
@@ -307,6 +308,25 @@ fn build_pod(
         }),
         ..Default::default()
     }
+}
+
+fn build_session_flag_env(payload: &SpawnRequest) -> Vec<EnvVar> {
+    let mut env = Vec::new();
+
+    if let Some(flags) = payload.session_flags.as_object() {
+        for (step_number, flag) in flags {
+            let Some(flag) = flag.as_str() else {
+                continue;
+            };
+            env.push(EnvVar {
+                name: format!("ALTAIR_FLAG_STEP_{}", step_number),
+                value: Some(flag.to_string()),
+                ..Default::default()
+            });
+        }
+    }
+
+    env
 }
 
 fn build_web_service(pod_name: &str, payload: &SpawnRequest) -> Service {
@@ -730,6 +750,7 @@ mod tests {
             template_path: "example.test/lab:latest".to_string(),
             lab_delivery: "terminal".to_string(),
             app_port: None,
+            session_flags: serde_json::json!({}),
         }
     }
 

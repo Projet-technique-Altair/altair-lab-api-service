@@ -60,6 +60,7 @@ fn create_test_spawn_request() -> SpawnRequest {
         template_path: "europe-west9-docker.pkg.dev/altair-isen/altair-labs/lab:latest".to_string(),
         lab_delivery: "terminal".to_string(),
         app_port: None,
+        session_flags: serde_json::json!({}),
     }
 }
 

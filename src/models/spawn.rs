@@ -38,6 +38,8 @@ pub struct SpawnRequest {
     pub template_path: String,
     pub lab_delivery: String,
     pub app_port: Option<i32>,
+    #[serde(default)]
+    pub session_flags: serde_json::Value,
 }
 
 #[derive(Serialize)]
