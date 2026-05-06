@@ -724,6 +724,8 @@ mod tests {
         SpawnRequest {
             session_id: Uuid::new_v4(),
             runtime_id: Uuid::new_v4(),
+            user_id: None,
+            lab_id: None,
             lab_type: "guided_terminal".to_string(),
             template_path: "example.test/lab:latest".to_string(),
             lab_delivery: "terminal".to_string(),
