@@ -30,7 +30,11 @@
 use axum::extract::ws::{Message, WebSocket};
 use futures::{SinkExt, StreamExt};
 use k8s_openapi::api::core::v1::Pod;
-use kube::{api::AttachParams, Api};
+use kube::{
+    api::{AttachParams, TerminalSize},
+    Api,
+};
+use serde::Deserialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{error, info, warn};
 
@@ -63,6 +67,14 @@ fi
 export PS1="${USER_NAME}@altair:\${PWD}${PROMPT_CHAR} "
 exec sh -i
 "##;
+
+#[derive(Debug, Deserialize)]
+struct TerminalResizeMessage {
+    #[serde(rename = "type")]
+    message_type: String,
+    cols: u16,
+    rows: u16,
+}
 
 pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) {
     let namespace = terminal_namespace();
@@ -125,6 +137,8 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) 
         return;
     };
 
+    let mut terminal_size_tx = exec.terminal_size();
+
     if let Some(mut stderr) = exec.stderr() {
         let stderr_namespace = namespace.clone();
         let stderr_pod_name = pod_name.clone();
@@ -175,6 +189,28 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) 
 
                     if stdin.write_all(&data).await.is_err() {
                         break;
+                    }
+                }
+                Message::Text(text) => {
+                    let Ok(resize) = serde_json::from_str::<TerminalResizeMessage>(text.as_str())
+                    else {
+                        continue;
+                    };
+                    if resize.message_type != "resize" || resize.cols == 0 || resize.rows == 0 {
+                        continue;
+                    }
+                    let sent = if let Some(tx) = terminal_size_tx.as_mut() {
+                        tx.send(TerminalSize {
+                            width: resize.cols,
+                            height: resize.rows,
+                        })
+                        .await
+                        .is_ok()
+                    } else {
+                        false
+                    };
+                    if !sent {
+                        terminal_size_tx = None;
                     }
                 }
                 Message::Close(_) => break,

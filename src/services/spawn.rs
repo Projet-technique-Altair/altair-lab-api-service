@@ -282,6 +282,7 @@ fn build_pod(
             containers: vec![Container {
                 name: LAB_CONTAINER_NAME.into(),
                 image: Some(payload.template_path.clone()),
+                image_pull_policy: Some("Always".into()),
                 command: is_terminal.then(|| vec!["/bin/sh".to_string(), "-lc".to_string()]),
                 args: is_terminal.then(|| vec![TERMINAL_KEEPALIVE_SCRIPT.to_string()]),
                 env: Some(build_session_flag_env(payload)),
