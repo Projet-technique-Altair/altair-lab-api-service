@@ -149,10 +149,20 @@ async fn flush_terminal_events(
         events: batch,
     };
 
-    if let Err(error) = reqwest::Client::new().post(url).json(&payload).send().await {
-        warn!(
-            "Failed to forward terminal events to sessions-ms: {}",
-            error
-        );
+    match reqwest::Client::new().post(&url).json(&payload).send().await {
+        Ok(response) if response.status().is_success() => {}
+        Ok(response) => {
+            warn!(
+                status = %response.status(),
+                url = %url,
+                "sessions-ms rejected terminal events"
+            );
+        }
+        Err(error) => {
+            warn!(
+                "Failed to forward terminal events to sessions-ms: {}",
+                error
+            );
+        }
     }
 }
