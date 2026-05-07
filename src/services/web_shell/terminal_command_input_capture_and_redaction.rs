@@ -1,5 +1,7 @@
 //! Capture and redact commands entered through the terminal WebSocket stream.
 
+const MAX_CAPTURED_COMMAND_CHARS: usize = 2048;
+
 #[derive(Default)]
 pub(super) struct TerminalCommandInputCapture {
     buffer: String,
@@ -33,7 +35,9 @@ impl TerminalCommandInputCapture {
                 0x1b => {}
                 b'\t' => self.buffer.push(' '),
                 byte if byte.is_ascii_graphic() || byte == b' ' => {
-                    self.buffer.push(byte as char);
+                    if self.buffer.len() < MAX_CAPTURED_COMMAND_CHARS {
+                        self.buffer.push(byte as char);
+                    }
                 }
                 _ => {}
             }
@@ -88,7 +92,7 @@ fn redact_command(command: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{redact_command, TerminalCommandInputCapture};
+    use super::{redact_command, TerminalCommandInputCapture, MAX_CAPTURED_COMMAND_CHARS};
 
     #[test]
     fn extracts_entered_commands_from_terminal_input() {
@@ -106,6 +110,17 @@ mod tests {
         assert_eq!(
             capture.capture_redacted_commands(b"ho test\r"),
             vec!["echo test"]
+        );
+    }
+
+    #[test]
+    fn limits_partial_command_capture() {
+        let mut capture = TerminalCommandInputCapture::default();
+        let long_input = vec![b'a'; MAX_CAPTURED_COMMAND_CHARS + 50];
+
+        assert_eq!(
+            capture.capture_redacted_commands(&[long_input, vec![b'\r']].concat()),
+            vec!["a".repeat(MAX_CAPTURED_COMMAND_CHARS)]
         );
     }
 

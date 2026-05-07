@@ -183,7 +183,7 @@ pub async fn handle_terminal(socket: WebSocket, pod_name: String, state: State) 
                     let commands = command_capture.capture_redacted_commands(data.as_ref());
                     if let Some(forwarder) = &event_forwarder {
                         for command in commands {
-                            forwarder.send_redacted_command(command).await;
+                            forwarder.send_redacted_command(command);
                         }
                     }
 

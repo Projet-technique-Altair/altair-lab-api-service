@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 const EVENT_BATCH_SIZE: usize = 10;
 const EVENT_FLUSH_SECS: u64 = 2;
+const EVENT_QUEUE_SIZE: usize = 256;
 
 #[derive(Clone)]
 pub(super) struct TerminalCommandEventForwarder {
@@ -47,27 +48,30 @@ pub(super) async fn start_terminal_command_event_forwarder(
     pod_name: &str,
 ) -> Option<TerminalCommandEventForwarder> {
     let context = load_terminal_event_context(pods, pod_name).await?;
-    let (tx, rx) = mpsc::channel(100);
+    let (tx, rx) = mpsc::channel(EVENT_QUEUE_SIZE);
     tokio::spawn(forward_terminal_events(context, rx));
 
     Some(TerminalCommandEventForwarder { tx })
 }
 
 impl TerminalCommandEventForwarder {
-    pub(super) async fn send_redacted_command(&self, command_redacted: String) {
+    pub(super) fn send_redacted_command(&self, command_redacted: String) {
         if command_redacted.is_empty() {
             return;
         }
 
-        let _ = self
+        if self
             .tx
-            .send(TerminalCommandEvent {
+            .try_send(TerminalCommandEvent {
                 event_id: Uuid::new_v4(),
                 occurred_at: Utc::now(),
                 command_redacted,
                 exit_status: None,
             })
-            .await;
+            .is_err()
+        {
+            warn!("Dropped terminal command event because the analytics queue is full");
+        }
     }
 }
 
